@@ -1,11 +1,11 @@
 :root {
-  /* 修改这里即可切换整套主题 */
-  --theme-primary: #008779;
-  --theme-primary-deep: #007267;
+  /* 修改这里即可切换整套主题 2488FA */
+  --theme-primary: #419AFE;
+  --theme-primary-deep: #2488FA;
   --theme-primary-soft: #dff5f2;
   --theme-primary-muted: #eef8f7;
   --theme-secondary: #b9d9d4;
-  --theme-accent: #0f9a8a;
+  --theme-accent: #429BFE;
   --theme-bg: #f5faf9;
   --theme-bg-dots: rgba(0, 135, 121, 0.1);
   --theme-surface: #ffffff;
@@ -27,17 +27,17 @@
   --theme-alert-text: #9a6a1b;
   --theme-alert-icon: #f39c12;
   --theme-danger: #c65a5a;
-  --theme-nav-start: #0f9a8a;
-  --theme-nav-end: #007267;
+  --theme-nav-start: #429BFE;
+  --theme-nav-end: #2488FA;
   --theme-nav-shadow: 0 8px 18px rgba(0, 114, 103, 0.2);
   --theme-hero-start: #dff5f2;
   --theme-hero-end: #f7fcfb;
   --theme-hero-border: #c8e3de;
   --theme-step-active-bg: #e5f4f1;
   --theme-step-active-border: #a9cdc6;
-  --theme-step-active-text: #008779;
+  --theme-step-active-text: #419AFE;
   --theme-chat-doctor-bg: #ffffff;
-  --theme-chat-patient-bg: linear-gradient(180deg, #0f9a8a 0%, #007267 100%);
+  --theme-chat-patient-bg: linear-gradient(180deg, #429BFE 0%, #2488FA 100%);
   --theme-overlay: rgba(255, 255, 255, 0.92);
   --theme-preview-line: rgba(0, 135, 121, 0.16);
   --theme-preview-line-soft: rgba(0, 135, 121, 0.03);

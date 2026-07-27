@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useConsultationStore } from '@/stores/consultation'
-import stepOneImage from '@/assets/image/1.webp'
+import stepOneImage from '@/assets/image/1.png'
 import stepTwoImage from '@/assets/image/2.png'
 import stepThreeImage from '@/assets/image/3.png'
 import hosiptalImg from '@/assets/image/5.png'
