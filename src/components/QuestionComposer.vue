@@ -36,6 +36,15 @@ watch(
   }
 )
 
+const showAllowUnknown = computed(() => {
+  if (!props.question) return false
+  if (props.question.required) return false
+  if (!props.question.allowUnknown) return false
+  const title = props.question.title || ''
+  if (title.includes('性别') || title.includes('男') || title.includes('女')) return false
+  return true
+})
+
 function submit() {
   const question = props.question
 
@@ -113,7 +122,7 @@ function submitUnknown() {
 
     <div v-if="question && question.type !== 'upload'" class="composer__actions">
       <van-button
-        v-if="question.allowUnknown"
+        v-if="showAllowUnknown"
         plain
         type="primary"
         class="composer__button"

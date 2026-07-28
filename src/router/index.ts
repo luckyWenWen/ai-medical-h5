@@ -57,6 +57,19 @@ const router = createRouter({
   }
 })
 
+import { extractAndSaveUrlToken } from '@/api/request'
+
+router.beforeEach((to) => {
+  if (to.query.token || to.query.satoken || to.query.ticket) {
+    const rawToken = String(to.query.token || to.query.satoken || to.query.ticket)
+    if (rawToken) {
+      localStorage.setItem('patient_token', rawToken.replace(/^Bearer\s+/i, ''))
+    }
+  } else {
+    extractAndSaveUrlToken()
+  }
+})
+
 router.afterEach((to) => {
   document.title = String(to.meta.title || '智能预问诊')
 })

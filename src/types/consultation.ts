@@ -28,6 +28,8 @@ export interface ConsultationQuestion {
   id: string
   title: string
   type: QuestionType
+  /** 后端原始题型（如 SCALE/DATETIME），用于按后端契约序列化答案 */
+  backendType?: string
   required?: boolean
   allowUnknown?: boolean
   placeholder?: string

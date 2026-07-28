@@ -29,6 +29,11 @@ const tabItems = [
   { icon: 'add-square', label: '服务' },
   { icon: 'setting-o', label: '设置' }
 ]
+
+async function startNew() {
+  await store.reset()
+  router.push('/visit')
+}
 </script>
 
 <template>
@@ -93,7 +98,7 @@ const tabItems = [
           >
             继续上次问诊
           </van-button>
-          <van-button class="start-button" type="primary" block @click="router.push('/visit')">
+          <van-button class="start-button" type="primary" block @click="startNew">
             <span>开始预问诊</span>
             <van-icon name="arrow" />
           </van-button>

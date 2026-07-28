@@ -15,27 +15,41 @@ const store = useConsultationStore()
 const fileList = ref<VantFile[]>([])
 const hasMaterials = computed(() => store.materials.length > 0)
 
-function afterRead(item: VantFile | VantFile[]) {
+import { uploadAttachmentApi } from '@/api/consultation'
+
+async function afterRead(item: VantFile | VantFile[]) {
   const files = Array.isArray(item) ? item : [item]
 
-  files.forEach((fileItem) => {
+  for (const fileItem of files) {
     const file = fileItem.file
 
-    if (!file) return
+    if (!file) continue
 
     if (file.size > 10 * 1024 * 1024) {
       showToast('单个文件不能超过 10MB')
-      return
+      continue
+    }
+
+    let remoteUrl = fileItem.content || ''
+    if (store.recordId) {
+      try {
+        const res = await uploadAttachmentApi(store.recordId, file)
+        if (res && res.url) {
+          remoteUrl = res.url
+        }
+      } catch (error) {
+        console.warn('上传附件到后端接口失败，保留本地模式:', error)
+      }
     }
 
     store.addMaterial({
       id: `${Date.now()}-${file.name}`,
       name: file.name,
       type: file.type.startsWith('image/') ? 'image' : 'file',
-      url: fileItem.content || '',
-      status: 'local'
+      url: remoteUrl,
+      status: 'uploaded'
     })
-  })
+  }
 }
 
 function finishUpload() {

@@ -40,7 +40,13 @@ async function next() {
             </van-radio-group>
           </template>
         </van-field>
-        <van-field v-model.number="form.age" type="digit" label="年龄" placeholder="请输入年龄" />
+        <van-field
+          :model-value="form.age ?? undefined"
+          type="digit"
+          label="年龄"
+          placeholder="请输入年龄"
+          @update:model-value="(val) => (form.age = val ? Number(val) : null)"
+        />
         <van-field v-model="form.phone" type="tel" label="手机号" placeholder="请输入手机号" />
         <van-field v-model="form.idCard" label="身份证号" placeholder="可选" />
         <van-field v-model="form.cardNo" label="就诊卡号" readonly />

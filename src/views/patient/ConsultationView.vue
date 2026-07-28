@@ -31,7 +31,8 @@ function scrollToBottom() {
 }
 
 async function answer(value: AnswerValue) {
-  store.answerCurrent(value)
+  // 必须等待答案保存与索引推进完成后，才能正确判断问卷是否已答完
+  await store.answerCurrent(value)
 
   if (!store.currentQuestion) {
     await store.buildReport()
