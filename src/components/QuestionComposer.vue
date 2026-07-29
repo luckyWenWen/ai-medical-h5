@@ -5,10 +5,12 @@ import type { AnswerValue, ConsultationQuestion } from '@/types/consultation'
 
 const props = defineProps<{
   question?: ConsultationQuestion
+  answer?: AnswerValue
 }>()
 
 const emit = defineEmits<{
   submit: [answer: AnswerValue]
+  bodyPart: []
   upload: []
 }>()
 
@@ -16,6 +18,21 @@ const singleValue = ref('')
 const multiValue = ref<string[]>([])
 const textValue = ref('')
 const numberValue = ref('')
+
+function hydrateAnswer(answer: AnswerValue | undefined) {
+  if (!props.question || answer === null || answer === undefined) {
+    singleValue.value = ''
+    multiValue.value = []
+    textValue.value = ''
+    numberValue.value = ''
+    return
+  }
+
+  if (props.question.type === 'single') singleValue.value = String(answer)
+  if (props.question.type === 'multi') multiValue.value = Array.isArray(answer) ? answer.map(String) : [String(answer)]
+  if (props.question.type === 'text') textValue.value = String(answer)
+  if (props.question.type === 'number') numberValue.value = String(answer)
+}
 
 const isEmpty = computed(() => {
   if (!props.question) return true
@@ -27,13 +44,11 @@ const isEmpty = computed(() => {
 })
 
 watch(
-  () => props.question?.id,
+  () => [props.question?.id, props.answer] as const,
   () => {
-    singleValue.value = ''
-    multiValue.value = []
-    textValue.value = ''
-    numberValue.value = ''
-  }
+    hydrateAnswer(props.answer)
+  },
+  { immediate: true }
 )
 
 const showAllowUnknown = computed(() => {
@@ -116,11 +131,18 @@ function submitUnknown() {
       </van-field>
     </template>
 
+    <template v-else-if="question?.type === 'bodyPart'">
+      <van-button block icon="location-o" @click="$emit('bodyPart')">选择不适部位</van-button>
+    </template>
+
     <template v-else-if="question?.type === 'upload'">
       <van-button block icon="upgrade" @click="$emit('upload')">上传资料</van-button>
     </template>
 
-    <div v-if="question && question.type !== 'upload'" class="composer__actions">
+    <div
+      v-if="question && !['bodyPart', 'upload'].includes(question.type)"
+      class="composer__actions"
+    >
       <van-button
         v-if="showAllowUnknown"
         plain

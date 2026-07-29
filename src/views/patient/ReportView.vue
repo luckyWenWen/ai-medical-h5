@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { showImagePreview, showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
 import { useConsultationStore } from '@/stores/consultation'
+import type { UploadMaterial } from '@/types/consultation'
 
 const router = useRouter()
 const store = useConsultationStore()
 const report = computed(() => store.report)
-const sectionItems = computed(() => [
+const textSections = computed(() => [
   {
     title: '主诉',
     content: report.value?.chiefComplaint,
@@ -27,11 +29,6 @@ const sectionItems = computed(() => [
     title: '过敏史',
     content: report.value?.allergyHistory,
     color: 'orange'
-  },
-  {
-    title: '上传资料摘要',
-    content: report.value?.materialSummary,
-    color: 'cyan'
   }
 ])
 const genderText = computed(() => {
@@ -46,9 +43,26 @@ onMounted(async () => {
   }
 })
 
+function previewMaterial(item: UploadMaterial) {
+  if (item.type === 'image' && item.url) {
+    showImagePreview({
+      images: [item.url],
+      closeable: true,
+      closeOnClickOverlay: true,
+      closeOnClickImage: true
+    })
+  } else if (item.name) {
+    showToast(`已归档资料：${item.name}`)
+  }
+}
+
 function submit() {
   store.submitReport()
   router.push('/success')
+}
+
+function revise() {
+  router.push({ path: '/consultation', query: { revise: '1' } })
 }
 </script>
 
@@ -87,13 +101,39 @@ function submit() {
         </section>
 
         <section
-          v-for="item in sectionItems"
+          v-for="item in textSections"
           :key="item.title"
           class="record-section"
           :class="`record-section--${item.color}`"
         >
           <h2>{{ item.title }}：</h2>
           <p>{{ item.content || '未填写' }}</p>
+        </section>
+
+        <section class="record-section record-section--cyan">
+          <h2>上传资料摘要：</h2>
+          <p>{{ report?.materialSummary || '未上传检查资料' }}</p>
+
+          <div v-if="store.materials.length" class="materials-preview-grid">
+            <div
+              v-for="item in store.materials"
+              :key="item.id"
+              class="material-preview-card"
+              @click="previewMaterial(item)"
+            >
+              <img
+                v-if="item.type === 'image' && item.url"
+                :src="item.url"
+                class="material-preview-card__img"
+                alt="资料预览"
+              />
+              <div v-else class="material-preview-card__icon">📄</div>
+              <div class="material-preview-card__info">
+                <span class="material-preview-card__name">{{ item.name }}</span>
+                <span class="material-preview-card__tag">{{ item.type === 'image' ? '点击放大预览' : '已上传' }}</span>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section v-if="report?.riskTips.length" class="record-section record-section--risk">
@@ -109,7 +149,7 @@ function submit() {
 
     <div class="fixed-action report-fixed-action">
       <div class="fixed-action__inner action-row">
-        <van-button class="report-action report-action--secondary" @click="router.push('/consultation')">
+        <van-button class="report-action report-action--secondary" @click="revise">
           返回修改
         </van-button>
         <van-button class="report-action" type="primary" @click="submit">确认提交</van-button>
@@ -327,6 +367,61 @@ function submit() {
 
 .report-action--secondary :deep(.van-button__text) {
   color: var(--theme-primary);
+}
+
+.materials-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.material-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--theme-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--theme-surface, #f9fafb);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.material-preview-card:active {
+  background: #eef2ff;
+}
+
+.material-preview-card__img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.material-preview-card__icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.material-preview-card__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.material-preview-card__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-preview-card__tag {
+  font-size: 10px;
+  color: #059669;
 }
 
 @supports not (color: color-mix(in srgb, red 10%, transparent)) {

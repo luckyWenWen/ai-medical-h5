@@ -1,10 +1,11 @@
 export type VisitType = 'first' | 'return'
 export type Gender = 'male' | 'female'
-export type QuestionType = 'single' | 'multi' | 'text' | 'number' | 'date' | 'upload'
+export type QuestionType = 'single' | 'multi' | 'text' | 'number' | 'date' | 'bodyPart' | 'upload'
 
 export interface VisitInfo {
   visitType: VisitType
   department: string
+  departmentId: string
   doctor: string
   appointmentNo: string
   visitTime: string
@@ -35,6 +36,11 @@ export interface ConsultationQuestion {
   placeholder?: string
   unit?: string
   options?: QuestionOption[]
+  maxSelections?: number
+  maxFiles?: number
+  maxFileSizeBytes?: number
+  acceptedMimeTypes?: string[]
+  uploadEnabled?: boolean
 }
 
 export interface ChatMessage {
@@ -44,7 +50,7 @@ export interface ChatMessage {
   questionId?: string
 }
 
-export type AnswerValue = string | string[] | number | null
+export type AnswerValue = string | string[] | number | boolean | null
 
 export interface UploadMaterial {
   id: string

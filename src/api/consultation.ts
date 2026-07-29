@@ -20,12 +20,20 @@ export interface PreconsultRecordViewBackend {
   readOnly?: boolean
   questions?: BackendQuestionItem[]
   answers?: any[]
-  nextTemplateQuestionId?: string
+  visibleTemplateQuestionIds?: Array<string | number>
+  invalidatedTemplateQuestionIds?: Array<string | number>
+  nextTemplateQuestionId?: string | number | null
   progress?: {
-    answeredCount?: number
+    resolvedCount?: number
     totalCount?: number
-    percentage?: number
+    percent?: number
   }
+}
+
+export interface BackendBodyPartItem {
+  code: string
+  name: string
+  children?: BackendBodyPartItem[]
 }
 
 export interface BackendQuestionItem {
@@ -43,7 +51,23 @@ export interface BackendQuestionItem {
     placeholder?: string
     unit?: string
     allowUnknown?: boolean
+    bodyParts?: BackendBodyPartItem[]
+    maxSelections?: number
+    maxFiles?: number
+    maxFileSizeBytes?: number
+    acceptedMimeTypes?: string[]
+    uploadEnabled?: boolean
   }
+}
+
+export interface PreconsultAttachmentBackend {
+  attachmentId: string
+  fileName: string
+  fileSize: number
+  /** 兼容部署方扩展的附件访问地址。 */
+  url?: string
+  /** 兼容旧版或网关转换后的附件标识字段。 */
+  id?: string
 }
 
 const mockDepartments: DepartmentOption[] = [
@@ -97,6 +121,7 @@ const mockDepartments: DepartmentOption[] = [
 function mapBackendTypeToFrontend(type: string): QuestionType {
   const upper = (type || '').toUpperCase()
   if (upper.includes('SINGLE')) return 'single'
+  if (upper.includes('BODY_PART')) return 'bodyPart'
   if (upper.includes('MULTI')) return 'multi'
   if (upper.includes('TEXT')) return 'text'
   if (upper.includes('NUMBER') || upper.includes('SCALE')) return 'number'
@@ -105,28 +130,65 @@ function mapBackendTypeToFrontend(type: string): QuestionType {
   return 'text'
 }
 
+function flattenBodyParts(
+  bodyParts: BackendBodyPartItem[] = [],
+  parentName = ''
+): Array<{ label: string; value: string }> {
+  return bodyParts.flatMap((part) => {
+    const label = parentName ? `${parentName} / ${part.name}` : part.name
+    const current = part.code ? [{ label, value: part.code }] : []
+    return current.concat(flattenBodyParts(part.children || [], label))
+  })
+}
+
 export function convertBackendQuestionToFrontend(q: BackendQuestionItem): ConsultationQuestion {
+  const backendType = (q.type || '').toUpperCase()
+  const options = backendType === 'BODY_PART'
+    ? flattenBodyParts(q.config?.bodyParts)
+    : (q.options || []).map((opt) => ({
+        label: opt.label || String(opt.value || opt.code || ''),
+        value: opt.value || opt.code || opt.label || ''
+      }))
+
   return {
     id: String(q.templateQuestionId),
     title: q.title,
     type: mapBackendTypeToFrontend(q.type),
-    backendType: (q.type || '').toUpperCase(),
+    backendType,
     required: q.required ?? true,
     allowUnknown: q.config?.allowUnknown ?? true,
     placeholder: q.config?.placeholder,
     unit: q.config?.unit,
-    options: (q.options || []).map((opt) => ({
-      label: opt.label || String(opt.value || opt.code || ''),
-      value: opt.value || opt.code || opt.label || ''
-    }))
+    options,
+    maxSelections: q.config?.maxSelections,
+    maxFiles: q.config?.maxFiles,
+    maxFileSizeBytes: q.config?.maxFileSizeBytes,
+    acceptedMimeTypes: q.config?.acceptedMimeTypes,
+    uploadEnabled: q.config?.uploadEnabled
   }
 }
 
-export async function getConsultationQuestions(): Promise<ConsultationQuestion[]> {
+export function getVisibleQuestionsFromRecord(
+  record: PreconsultRecordViewBackend
+): ConsultationQuestion[] {
+  const questions = (record.questions || []).map(convertBackendQuestionToFrontend)
+  if (!Array.isArray(record.visibleTemplateQuestionIds)) {
+    return questions
+  }
+
+  const questionById = new Map(questions.map((question) => [question.id, question]))
+  return record.visibleTemplateQuestionIds
+    .map((id) => questionById.get(String(id)))
+    .filter((question): question is ConsultationQuestion => Boolean(question))
+}
+
+export async function getConsultationQuestions(
+  departmentId?: number
+): Promise<ConsultationQuestion[]> {
   try {
-    const recordView = await bootstrapPreconsult()
+    const recordView = await bootstrapPreconsult({ departmentId })
     if (recordView && Array.isArray(recordView.questions) && recordView.questions.length > 0) {
-      return recordView.questions.map(convertBackendQuestionToFrontend)
+      return getVisibleQuestionsFromRecord(recordView)
     }
   } catch (error) {
     console.warn('获取后端预问诊问题失败，使用默认题库:', error)
@@ -197,12 +259,14 @@ export async function bootstrapPreconsult(payload?: {
   requestId?: string
   consentVersion?: string
   agreed?: boolean
+  departmentId?: number
 }): Promise<PreconsultRecordViewBackend> {
   const reqId = payload?.requestId || generateUUID()
   return http.post<PreconsultRecordViewBackend>('/preconsult/client/records/bootstrap', {
     requestId: reqId,
     consentVersion: payload?.consentVersion || '2026-07-v1',
-    agreed: payload?.agreed ?? true
+    agreed: payload?.agreed ?? true,
+    departmentId: payload?.departmentId
   })
 }
 
@@ -269,48 +333,61 @@ export async function getPreconsultResultApi(recordId: string): Promise<Consulta
   }
 }
 
-export async function uploadAttachmentApi(recordId: string, file: File): Promise<{ url: string; id: string }> {
+export async function uploadAttachmentApi(
+  recordId: string,
+  templateQuestionId: string,
+  file: File
+): Promise<PreconsultAttachmentBackend> {
   const formData = new FormData()
+  formData.append('templateQuestionId', templateQuestionId)
   formData.append('file', file)
-  return http.post<{ url: string; id: string }>(`/preconsult/client/records/${recordId}/attachments`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
+  return http.post<PreconsultAttachmentBackend>(
+    `/preconsult/client/records/${recordId}/attachments`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  )
 }
 
 export async function createReport(payload: {
   answers: Record<string, unknown>
+  questions: ConsultationQuestion[]
   materialsCount: number
 }): Promise<ConsultationReport> {
-  const chief = Array.isArray(payload.answers.chiefSymptom)
-    ? payload.answers.chiefSymptom.join('、')
-    : '未填写'
-  const duration = String(payload.answers.duration || '时间不详')
-  const severity = String(payload.answers.severity || '程度未说明')
-  const temperature = payload.answers.temperature
-    ? `，最高体温约 ${payload.answers.temperature}℃`
-    : ''
-  const pastHistory = Array.isArray(payload.answers.pastHistory)
-    ? payload.answers.pastHistory.join('、')
-    : '未说明'
-  const allergy = String(payload.answers.allergyHistory || '未说明')
-  const treatment = String(payload.answers.treatment || '未说明')
-  const risks: string[] = []
-
-  if (chief.includes('胸闷') || severity === '严重') {
-    risks.push('存在胸闷或严重症状描述，建议医生优先确认生命体征和急症风险。')
+  function collectAnswers(): string[] {
+    return payload.questions
+      .filter((q) => payload.answers[q.id] !== undefined && payload.answers[q.id] !== null)
+      .map((q) => {
+        const val = payload.answers[q.id]
+        const label = Array.isArray(val)
+          ? val.map(String).join('、')
+          : String(val)
+        return `${q.title.replace(/[：:？?]$/g, '')}：${label}`
+      })
   }
 
+  const allAnswers = collectAnswers()
+  const chiefLine = allAnswers.find((a) => a.includes('主诉') || a.includes('主要症状') || a.includes('症状'))
+    || allAnswers[0]
+    || '未填写'
+  const chief = chiefLine.includes('：') ? chiefLine.split('：').slice(1).join('：') : chiefLine
+
+  const pastLine = allAnswers.find((a) => a.includes('既往') || a.includes('病史'))
+  const pastHistory = pastLine ? pastLine.split('：').slice(1).join('：') : '未说明'
+
+  const allergyLine = allAnswers.find((a) => a.includes('过敏'))
+  const allergy = allergyLine ? allergyLine.split('：').slice(1).join('：') : '未说明'
+
   return Promise.resolve({
-    chiefComplaint: `${chief} ${duration}`,
-    presentIllness: `患者自述${duration}出现${chief}，目前症状程度为${severity}${temperature}。治疗经过：${treatment}。`,
+    chiefComplaint: chief || '未填写',
+    presentIllness: allAnswers.length > 0 ? allAnswers.join('；') : '未填写现病史',
     pastHistory,
     allergyHistory: allergy,
     personalHistory: '待医生进一步确认吸烟、饮酒、职业暴露等个人史。',
     materialSummary: payload.materialsCount
       ? `患者已上传 ${payload.materialsCount} 份资料，待医生查看原件。`
       : '患者暂未上传检查资料。',
-    riskTips: risks,
-    draftMedicalRecord: `主诉：${chief} ${duration}\n现病史：患者${duration}出现${chief}，程度${severity}${temperature}，治疗经过：${treatment}。\n既往史：${pastHistory}。\n过敏史：${allergy}。`
+    riskTips: [],
+    draftMedicalRecord: `主诉：${chief}\n现病史：${allAnswers.join('；')}\n既往史：${pastHistory}\n过敏史：${allergy}`
   })
 }
 

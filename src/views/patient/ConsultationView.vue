@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppNavBar from '@/components/AppNavBar.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
 import QuestionComposer from '@/components/QuestionComposer.vue'
@@ -8,12 +8,22 @@ import { useConsultationStore } from '@/stores/consultation'
 import type { AnswerValue } from '@/types/consultation'
 
 const router = useRouter()
+const route = useRoute()
 const store = useConsultationStore()
 const chatBody = ref<HTMLElement>()
 const progress = computed(() => Math.min(store.progressPercent, 100))
 
 onMounted(async () => {
-  await store.loadQuestions()
+  if ((route.query.revise === '1' || store.report) && store.resumeForRevision()) {
+    scrollToBottom()
+    return
+  }
+
+  if (!store.questions.length || !store.messages.length) {
+    await store.loadQuestions()
+  } else {
+    store.ensureCurrentQuestionMessage()
+  }
   scrollToBottom()
 })
 
@@ -34,14 +44,29 @@ async function answer(value: AnswerValue) {
   // 必须等待答案保存与索引推进完成后，才能正确判断问卷是否已答完
   await store.answerCurrent(value)
 
-  if (!store.currentQuestion) {
+  if (store.isRevising && !store.currentQuestion) {
+    await store.buildReport()
+    store.finishRevision()
+    router.push('/report')
+  } else if (!store.isRevising && !store.currentQuestion) {
     await store.buildReport()
     router.push('/report')
   }
 }
 
+function finishRevision() {
+  store.buildReport().then(() => {
+    store.finishRevision()
+    router.push('/report')
+  })
+}
+
 function upload() {
   router.push('/upload')
+}
+
+function selectBodyPart() {
+  router.push('/body')
 }
 </script>
 
@@ -65,12 +90,31 @@ function upload() {
       </div>
     </main>
 
-    <div v-if="store.currentQuestion" class="fixed-action">
+    <div v-if="store.currentQuestion && !store.isRevising" class="fixed-action">
       <QuestionComposer
         :question="store.currentQuestion"
+        :answer="store.answers[store.currentQuestion.id]"
         @submit="answer"
+        @body-part="selectBodyPart"
         @upload="upload"
       />
+    </div>
+    <div v-else-if="store.isRevising && store.currentQuestion" class="fixed-action">
+      <QuestionComposer
+        :question="store.currentQuestion"
+        :answer="store.answers[store.currentQuestion.id]"
+        @submit="answer"
+        @body-part="selectBodyPart"
+        @upload="upload"
+      />
+      <van-button type="primary" block class="finish-revision-btn" @click="finishRevision">
+        完成修改
+      </van-button>
+    </div>
+    <div v-else-if="store.isRevising && !store.currentQuestion" class="fixed-action">
+      <van-button type="primary" block @click="finishRevision">
+        完成修改，查看报告
+      </van-button>
     </div>
   </div>
 </template>
@@ -101,5 +145,9 @@ function upload() {
   margin-top: 0;
   border-top: 1px solid var(--theme-border);
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+}
+
+.finish-revision-btn {
+  margin-top: 8px;
 }
 </style>

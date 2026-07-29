@@ -96,6 +96,7 @@ async function loadDoctors(department: string) {
 
 function chooseDepartment({ selectedOptions }: { selectedOptions: PickerOption[] }) {
   form.department = selectedOptions[0]?.text ? String(selectedOptions[0].text) : ''
+  form.departmentId = selectedOptions[0]?.value ? String(selectedOptions[0].value) : ''
   form.doctor = ''
   showDepartmentPicker.value = false
   loadDoctors(form.department)

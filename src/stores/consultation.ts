@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia'
 import {
   bootstrapPreconsult,
-  convertBackendQuestionToFrontend,
+  getVisibleQuestionsFromRecord,
   createReport,
   getConsultationQuestions,
   getPreconsultResultApi,
   saveAnswersApi,
   submitPreconsultApi
 } from '@/api/consultation'
+import type { PreconsultRecordViewBackend } from '@/api/consultation'
 import { refreshAuthToken } from '@/api/request'
 import type {
   AnswerValue,
@@ -33,6 +34,7 @@ interface ConsultationState {
   materials: UploadMaterial[]
   report: ConsultationReport | null
   consultationNo: string
+  isRevising: boolean
 }
 
 const defaultState = (): ConsultationState => ({
@@ -41,6 +43,7 @@ const defaultState = (): ConsultationState => ({
   visitInfo: {
     visitType: 'first',
     department: '',
+    departmentId: '',
     doctor: '',
     appointmentNo: '',
     visitTime: ''
@@ -59,7 +62,8 @@ const defaultState = (): ConsultationState => ({
   currentIndex: 0,
   materials: [],
   report: null,
-  consultationNo: ''
+  consultationNo: '',
+  isRevising: false
 })
 
 function readState(): Partial<ConsultationState> {
@@ -76,6 +80,11 @@ function mapEnumValueToLabel(val: string): string {
 }
 
 function formatAnswer(answer: AnswerValue, question?: ConsultationQuestion): string {
+  if ((question?.backendType || '').toUpperCase().includes('UPLOAD')) {
+    const count = Array.isArray(answer) ? answer.length : answer ? 1 : 0
+    return count > 0 ? `已上传 ${count} 份资料` : '未上传资料'
+  }
+
   if (Array.isArray(answer)) {
     if (!answer.length) return '未填写'
     return answer
@@ -113,6 +122,18 @@ function formatBackendValue(answer: AnswerValue, question: ConsultationQuestion)
   if (upper.includes('SINGLE')) {
     return { type: 'SINGLE_CHOICE', optionValue: String(answer ?? '') }
   }
+  if (upper.includes('BODY_PART')) {
+    return {
+      type: 'BODY_PART',
+      bodyPartCodes: Array.isArray(answer) ? answer.map(String) : [String(answer ?? '')]
+    }
+  }
+  if (upper.includes('UPLOAD')) {
+    return {
+      type: 'UPLOAD',
+      attachmentIds: Array.isArray(answer) ? answer.map(String) : [String(answer ?? '')]
+    }
+  }
   if (upper.includes('MULTI')) {
     return { type: 'MULTIPLE_CHOICE', optionValues: Array.isArray(answer) ? answer.map(String) : [String(answer ?? '')] }
   }
@@ -126,6 +147,30 @@ function formatBackendValue(answer: AnswerValue, question: ConsultationQuestion)
     return { type: 'DATE', value: String(answer ?? '') }
   }
   return { type: 'TEXT', text: String(answer ?? '') }
+}
+
+function formatBackendAnswer(answer: any): AnswerValue {
+  if (!answer || answer.status === 'SKIPPED' || answer.value === null || answer.value === undefined) {
+    return null
+  }
+
+  const value = answer.value
+  if (Array.isArray(value.optionValues)) return value.optionValues.map(String)
+  if (Array.isArray(value.bodyPartCodes)) return value.bodyPartCodes.map(String)
+  if (Array.isArray(value.attachmentIds)) return value.attachmentIds.map(String)
+  if (value.optionValue !== undefined) return String(value.optionValue)
+  if (value.text !== undefined) return String(value.text)
+  if (value.value !== undefined) return value.value
+  return answer.displayText || answer.answerText || null
+}
+
+function hasAuthoritativeFlow(record: PreconsultRecordViewBackend): boolean {
+  return Array.isArray(record.visibleTemplateQuestionIds)
+}
+
+function resolveDepartmentId(visitInfo: VisitInfo): number | undefined {
+  const departmentId = Number(visitInfo.departmentId)
+  return Number.isInteger(departmentId) && departmentId > 0 ? departmentId : undefined
 }
 
 export const useConsultationStore = defineStore('consultation', {
@@ -145,44 +190,144 @@ export const useConsultationStore = defineStore('consultation', {
     persist() {
       localStorage.removeItem(STORAGE_KEY)
     },
-    async loadQuestions() {
-      try {
-        const bootstrapRes = await bootstrapPreconsult()
-        if (bootstrapRes && bootstrapRes.recordId) {
-          this.recordId = String(bootstrapRes.recordId)
-          if (typeof bootstrapRes.recordVersion === 'number') {
-            this.recordVersion = bootstrapRes.recordVersion
+    syncRecordView(record: PreconsultRecordViewBackend): boolean {
+      this.recordId = String(record.recordId || this.recordId)
+      if (typeof record.recordVersion === 'number') {
+        this.recordVersion = record.recordVersion
+      }
+
+      const invalidatedIds = new Set(
+        (record.invalidatedTemplateQuestionIds || []).map(String)
+      )
+      invalidatedIds.forEach((questionId) => {
+        delete this.answers[questionId]
+      })
+      if (invalidatedIds.size) {
+        this.messages = this.messages.filter(
+          (message) => !message.questionId || !invalidatedIds.has(message.questionId)
+        )
+      }
+
+      const authoritativeFlow = hasAuthoritativeFlow(record)
+      if (Array.isArray(record.questions)) {
+        this.questions = getVisibleQuestionsFromRecord(record)
+      }
+      if (Array.isArray(record.answers)) {
+        this.answers = {}
+        record.answers.forEach((answer) => {
+          const questionId = String(answer.templateQuestionId || '')
+          if (questionId) {
+            this.answers[questionId] = formatBackendAnswer(answer)
           }
-          if (Array.isArray(bootstrapRes.questions) && bootstrapRes.questions.length > 0) {
-            this.questions = bootstrapRes.questions.map(convertBackendQuestionToFrontend)
+        })
+      }
+      if (!authoritativeFlow) {
+        return false
+      }
+
+      if (record.nextTemplateQuestionId === null || record.nextTemplateQuestionId === undefined) {
+        this.currentIndex = this.questions.length
+        return true
+      }
+
+      const nextQuestionId = String(record.nextTemplateQuestionId)
+      const nextIndex = this.questions.findIndex((question) => question.id === nextQuestionId)
+      this.currentIndex = nextIndex >= 0 ? nextIndex : this.questions.length
+      return true
+    },
+    ensureCurrentQuestionMessage() {
+      const question = this.currentQuestion
+      if (!question || this.messages.some((message) => message.id === `q-${question.id}`)) {
+        return
+      }
+      this.messages.push({
+        id: `q-${question.id}`,
+        role: 'doctor',
+        content: question.title,
+        questionId: question.id
+      })
+    },
+    rebuildMessagesFromAnswers() {
+      this.messages = []
+      for (const question of this.questions) {
+        this.messages.push({
+          id: `q-${question.id}`,
+          role: 'doctor',
+          content: question.title,
+          questionId: question.id
+        })
+
+        if (Object.prototype.hasOwnProperty.call(this.answers, question.id)) {
+          this.messages.push({
+            id: `a-${question.id}-restored`,
+            role: 'patient',
+            content: formatAnswer(this.answers[question.id], question),
+            questionId: question.id
+          })
+        }
+      }
+    },
+    async loadQuestions() {
+      let loadedFromBackend = false
+      try {
+        const bootstrapRes = await bootstrapPreconsult({
+          departmentId: resolveDepartmentId(this.visitInfo)
+        })
+        if (bootstrapRes && bootstrapRes.recordId) {
+          loadedFromBackend = true
+          const synchronized = this.syncRecordView(bootstrapRes)
+          if (!synchronized) {
+            this.currentIndex = 0
           }
         }
       } catch (error) {
         console.warn('后端 Bootstrap 记录失败，使用常规问题加载:', error)
       }
 
-      if (!this.questions.length) {
-        this.questions = await getConsultationQuestions()
+      if (!loadedFromBackend && !this.questions.length) {
+        this.questions = await getConsultationQuestions(
+          resolveDepartmentId(this.visitInfo)
+        )
+        this.currentIndex = 0
       }
 
-      if (this.questions.length > 0) {
-        if (!this.messages.length || this.messages[0]?.questionId !== this.questions[0].id) {
-          this.currentIndex = 0
-          this.messages = [
-            {
-              id: `q-${this.questions[0].id}`,
-              role: 'doctor',
-              content: this.questions[0].title,
-              questionId: this.questions[0].id
-            }
-          ]
-        }
+      // 后端标记"已完成"时 currentIndex 会越界 → 重置到第一题重新开始问诊
+      if (this.questions.length > 0 && this.currentIndex >= this.questions.length) {
+        this.currentIndex = 0
       }
 
+      this.messages = []
+      this.ensureCurrentQuestionMessage()
       this.persist()
     },
+    resumeForRevision() {
+      if (!this.questions.length) {
+        return false
+      }
+
+      this.report = null
+      this.isRevising = true
+      const lastAnsweredIndex = this.questions.reduce((lastIndex, question, index) => (
+        Object.prototype.hasOwnProperty.call(this.answers, question.id) ? index : lastIndex
+      ), -1)
+      this.currentIndex = lastAnsweredIndex >= 0 ? lastAnsweredIndex : 0
+      this.rebuildMessagesFromAnswers()
+      this.persist()
+      return true
+    },
     saveVisitInfo(payload: VisitInfo) {
+      const departmentChanged = this.visitInfo.departmentId !== payload.departmentId
       this.visitInfo = payload
+      if (departmentChanged) {
+        this.recordVersion = 0
+        this.questions = []
+        this.answers = {}
+        this.messages = []
+        this.currentIndex = 0
+        this.materials = []
+        this.report = null
+        this.consultationNo = ''
+      }
       this.persist()
     },
     saveProfile(payload: PatientProfile) {
@@ -190,16 +335,19 @@ export const useConsultationStore = defineStore('consultation', {
       this.persist()
     },
     // 会话轮换（过期重建）后记录归属变化：重新 bootstrap 获取新记录，并批量回放本地全部已答内容
-    async resyncRecord(): Promise<boolean> {
-      const refreshRes = await bootstrapPreconsult()
-      if (!refreshRes || !refreshRes.recordId) return false
+    async resyncRecord(): Promise<PreconsultRecordViewBackend | null> {
+      const knownQuestions = [...this.questions]
+      const refreshRes = await bootstrapPreconsult({
+        departmentId: resolveDepartmentId(this.visitInfo)
+      })
+      if (!refreshRes || !refreshRes.recordId) return null
       this.recordId = String(refreshRes.recordId)
       if (typeof refreshRes.recordVersion === 'number') {
         this.recordVersion = refreshRes.recordVersion
       }
       const answers = Object.entries(this.answers)
         .map(([qid, ans]) => {
-          const q = this.questions.find((item) => item.id === qid)
+          const q = knownQuestions.find((item) => item.id === qid)
           if (!q) return null
           return {
             templateQuestionId: qid,
@@ -213,11 +361,11 @@ export const useConsultationStore = defineStore('consultation', {
           recordVersion: this.recordVersion,
           answers
         })
-        if (res && typeof res.recordVersion === 'number') {
-          this.recordVersion = res.recordVersion
-        }
+        this.syncRecordView(res)
+        return res
       }
-      return true
+      this.syncRecordView(refreshRes)
+      return refreshRes
     },
     async answerCurrent(answer: AnswerValue) {
       const question = this.currentQuestion
@@ -225,6 +373,10 @@ export const useConsultationStore = defineStore('consultation', {
       if (!question) return
 
       this.answers[question.id] = answer
+      this.report = null
+      this.messages = this.messages.filter(
+        (message) => message.role !== 'patient' || message.questionId !== question.id
+      )
       this.messages.push({
         id: `a-${question.id}-${Date.now()}`,
         role: 'patient',
@@ -232,7 +384,7 @@ export const useConsultationStore = defineStore('consultation', {
         questionId: question.id
       })
 
-      // 如果已有后端 recordId，异步提交/保存答案到后端
+      let synchronizedWithBackend = false
       if (this.recordId) {
         try {
           const res = await saveAnswersApi(this.recordId, {
@@ -245,19 +397,21 @@ export const useConsultationStore = defineStore('consultation', {
               }
             ]
           })
-          if (res && typeof res.recordVersion === 'number') {
-            this.recordVersion = res.recordVersion
-          }
+          synchronizedWithBackend = this.syncRecordView(res)
         } catch (error: any) {
           const status = error?.response?.status
           console.warn('保存单题答案到后端接口失败，尝试自动恢复:', error)
           try {
             if (status === 404) {
               // 记录不可用（会话过期重建）：重建记录并回放全部答案（含本题）
-              await this.resyncRecord()
+              const recovered = await this.resyncRecord()
+              synchronizedWithBackend = recovered ? hasAuthoritativeFlow(recovered) : false
             } else if (status === 409 || error?.code === 409 || String(error).includes('409')) {
-              const refreshRes = await bootstrapPreconsult()
+              const refreshRes = await bootstrapPreconsult({
+                departmentId: resolveDepartmentId(this.visitInfo)
+              })
               if (refreshRes && typeof refreshRes.recordVersion === 'number') {
+                this.recordId = String(refreshRes.recordId || this.recordId)
                 this.recordVersion = refreshRes.recordVersion
                 const retryRes = await saveAnswersApi(this.recordId, {
                   recordVersion: this.recordVersion,
@@ -269,9 +423,7 @@ export const useConsultationStore = defineStore('consultation', {
                     }
                   ]
                 })
-                if (retryRes && typeof retryRes.recordVersion === 'number') {
-                  this.recordVersion = retryRes.recordVersion
-                }
+                synchronizedWithBackend = this.syncRecordView(retryRes)
               }
             }
           } catch (retryErr) {
@@ -280,17 +432,13 @@ export const useConsultationStore = defineStore('consultation', {
         }
       }
 
-      this.currentIndex += 1
-
-      if (this.currentQuestion) {
-        this.messages.push({
-          id: `q-${this.currentQuestion.id}`,
-          role: 'doctor',
-          content: this.currentQuestion.title,
-          questionId: this.currentQuestion.id
-        })
+      if (!synchronizedWithBackend) {
+        this.currentIndex += 1
       }
-
+      if (this.isRevising && this.currentIndex >= this.questions.length) {
+        this.currentIndex = this.questions.length - 1
+      }
+      this.ensureCurrentQuestionMessage()
       this.persist()
     },
     reviseQuestion(questionId: string) {
@@ -299,13 +447,12 @@ export const useConsultationStore = defineStore('consultation', {
       if (index < 0) return
 
       this.currentIndex = index
+      this.isRevising = true
       this.messages = this.messages.filter((message) => {
         if (!message.questionId) return true
         const messageIndex = this.questions.findIndex((item) => item.id === message.questionId)
         return messageIndex < index || message.id === `q-${questionId}`
       })
-      delete this.answers[questionId]
-
       if (!this.messages.some((message) => message.id === `q-${questionId}`)) {
         this.messages.push({
           id: `q-${questionId}`,
@@ -315,6 +462,10 @@ export const useConsultationStore = defineStore('consultation', {
         })
       }
 
+      this.persist()
+    },
+    finishRevision() {
+      this.isRevising = false
       this.persist()
     },
     addMaterial(material: UploadMaterial) {
@@ -347,6 +498,7 @@ export const useConsultationStore = defineStore('consultation', {
       }
       this.report = await createReport({
         answers: this.answers,
+        questions: this.questions,
         materialsCount: this.materials.length
       })
       this.persist()
@@ -382,4 +534,3 @@ export const useConsultationStore = defineStore('consultation', {
     }
   }
 })
-
