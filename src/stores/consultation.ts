@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { showToast } from 'vant'
 import {
   bootstrapPreconsult,
   getVisibleQuestionsFromRecord,
@@ -25,6 +26,7 @@ const STORAGE_KEY = 'patient_consultation_state'
 interface ConsultationState {
   recordId: string
   recordVersion: number
+  recordStatus: string
   visitInfo: VisitInfo
   profile: PatientProfile
   questions: ConsultationQuestion[]
@@ -35,11 +37,13 @@ interface ConsultationState {
   report: ConsultationReport | null
   consultationNo: string
   isRevising: boolean
+  readOnly: boolean
 }
 
 const defaultState = (): ConsultationState => ({
   recordId: '',
   recordVersion: 0,
+  recordStatus: '',
   visitInfo: {
     visitType: 'first',
     department: '',
@@ -63,7 +67,8 @@ const defaultState = (): ConsultationState => ({
   materials: [],
   report: null,
   consultationNo: '',
-  isRevising: false
+  isRevising: false,
+  readOnly: false
 })
 
 function readState(): Partial<ConsultationState> {
@@ -193,11 +198,37 @@ export const useConsultationStore = defineStore('consultation', {
   }),
   getters: {
     currentQuestion: (state) => state.questions[state.currentIndex],
-    progressPercent: (state) =>
-      state.questions.length
-        ? Math.round((state.currentIndex / state.questions.length) * 100)
-        : 0,
-    canResume: (state) => state.messages.length > 0 && state.currentIndex < state.questions.length
+    progressPercent: (state) => {
+      if (!state.questions.length) return 0
+      // 按“已处理题数/可见题数”计算，分支题动态增减时不会出现进度回跳到错误值
+      const answeredCount = state.questions.filter((q) =>
+        Object.prototype.hasOwnProperty.call(state.answers, q.id)
+      ).length
+      return Math.min(100, Math.round((answeredCount / state.questions.length) * 100))
+    },
+    canResume: (state) => state.messages.length > 0 && state.currentIndex < state.questions.length,
+    patientKey: (state): string => {
+      const dept = state.visitInfo.departmentId || ''
+      const name = (state.profile.name || '').trim()
+      const phone = (state.profile.phone || '').trim()
+      if (!name || !phone) return ''
+      return `${dept}_${name}_${phone}`
+    },
+    firstUnansweredIndex: (state): number => {
+      return state.questions.findIndex((q) => {
+        if (q.required === false) return false
+        // 与后端口径一致：显式跳过（key 存在且值为 null）视为已处理
+        if (!Object.prototype.hasOwnProperty.call(state.answers, q.id)) return true
+        const ans = state.answers[q.id]
+        if (ans === null) return false
+        if (typeof ans === 'string' && ans.trim() === '') return true
+        if (Array.isArray(ans) && ans.length === 0) return true
+        return false
+      })
+    },
+    hasUnansweredRequiredQuestions(): boolean {
+      return this.firstUnansweredIndex >= 0
+    }
   },
   actions: {
     persist() {
@@ -222,6 +253,12 @@ export const useConsultationStore = defineStore('consultation', {
       }
 
       const authoritativeFlow = hasAuthoritativeFlow(record)
+      if (record.status) {
+        this.recordStatus = record.status
+      }
+      if (record.status === 'SUBMITTED' || record.readOnly) {
+        this.readOnly = true
+      }
       if (Array.isArray(record.questions)) {
         this.questions = getVisibleQuestionsFromRecord(record)
       }
@@ -262,21 +299,28 @@ export const useConsultationStore = defineStore('consultation', {
     },
     rebuildMessagesFromAnswers() {
       this.messages = []
-      for (const question of this.questions) {
-        this.messages.push({
-          id: `q-${question.id}`,
-          role: 'doctor',
-          content: question.title,
-          questionId: question.id
-        })
+      const currentId = this.currentQuestion?.id
 
-        if (Object.prototype.hasOwnProperty.call(this.answers, question.id)) {
+      for (const question of this.questions) {
+        const hasAnswer = Object.prototype.hasOwnProperty.call(this.answers, question.id)
+        const isCurrent = !this.readOnly && question.id === currentId
+
+        if (hasAnswer || isCurrent) {
           this.messages.push({
-            id: `a-${question.id}-restored`,
-            role: 'patient',
-            content: formatAnswer(this.answers[question.id], question),
+            id: `q-${question.id}`,
+            role: 'doctor',
+            content: question.title,
             questionId: question.id
           })
+
+          if (hasAnswer) {
+            this.messages.push({
+              id: `a-${question.id}-restored`,
+              role: 'patient',
+              content: formatAnswer(this.answers[question.id], question),
+              questionId: question.id
+            })
+          }
         }
       }
     },
@@ -305,17 +349,25 @@ export const useConsultationStore = defineStore('consultation', {
         this.currentIndex = 0
       }
 
-      // 后端标记"已完成"时 currentIndex 会越界 → 重置到第一题重新开始问诊
-      if (this.questions.length > 0 && this.currentIndex >= this.questions.length) {
-        this.currentIndex = 0
+      if (Object.keys(this.answers).length > 0) {
+        this.rebuildMessagesFromAnswers()
+        if (!this.readOnly) {
+          this.ensureCurrentQuestionMessage()
+        }
+      } else {
+        this.messages = []
+        this.ensureCurrentQuestionMessage()
       }
-
-      this.messages = []
-      this.ensureCurrentQuestionMessage()
       this.persist()
     },
-    resumeForRevision() {
+    async resumeForRevision() {
       if (!this.questions.length) {
+        return false
+      }
+
+      if (this.readOnly || this.consultationNo) {
+        this.readOnly = true
+        showToast('本次预问诊已经提交，仅供查看，无法修改')
         return false
       }
 
@@ -329,27 +381,42 @@ export const useConsultationStore = defineStore('consultation', {
       this.persist()
       return true
     },
-    saveVisitInfo(payload: VisitInfo) {
+    async saveVisitInfo(payload: VisitInfo) {
       const departmentChanged = this.visitInfo.departmentId !== payload.departmentId
+      const wasSubmitted = this.readOnly || Boolean(this.consultationNo)
+
       this.visitInfo = payload
-      if (departmentChanged) {
-        this.recordVersion = 0
-        this.questions = []
-        this.answers = {}
-        this.messages = []
-        this.currentIndex = 0
-        this.materials = []
-        this.report = null
-        this.consultationNo = ''
+      if (departmentChanged || wasSubmitted) {
+        const savedProfile = { ...this.profile }
+        const savedVisitInfo = { ...this.visitInfo }
+        await this.reset()
+        this.profile = savedProfile
+        this.visitInfo = savedVisitInfo
       }
       this.persist()
     },
-    saveProfile(payload: PatientProfile) {
+    async saveProfile(payload: PatientProfile) {
+      const oldKey = this.patientKey
+      const newKey = payload.name && payload.phone ? `${payload.name.trim()}_${payload.phone.trim()}` : ''
+      const keyChanged = Boolean(oldKey) && Boolean(newKey) && oldKey !== newKey
+      const isNewPatient = !oldKey && Boolean(newKey)
+      const wasSubmitted = this.readOnly || Boolean(this.consultationNo)
+
       this.profile = payload
+      if (keyChanged || isNewPatient || wasSubmitted) {
+        const savedProfile = { ...this.profile }
+        const savedVisitInfo = { ...this.visitInfo }
+        await this.reset()
+        this.profile = savedProfile
+        this.visitInfo = savedVisitInfo
+      }
       this.persist()
     },
     // 会话轮换（过期重建）后记录归属变化：重新 bootstrap 获取新记录，并批量回放本地全部已答内容
-    async resyncRecord(): Promise<PreconsultRecordViewBackend | null> {
+    async resyncRecord(forceNewToken = false): Promise<PreconsultRecordViewBackend | null> {
+      if (forceNewToken) {
+        await refreshAuthToken()
+      }
       const knownQuestions = [...this.questions]
       const refreshRes = await bootstrapPreconsult({
         departmentId: resolveDepartmentId(this.visitInfo),
@@ -383,6 +450,12 @@ export const useConsultationStore = defineStore('consultation', {
       return refreshRes
     },
     async answerCurrent(answer: AnswerValue) {
+      if (this.readOnly || this.consultationNo) {
+        this.readOnly = true
+        showToast('本次预问诊已经提交，无法修改')
+        return
+      }
+
       const question = this.currentQuestion
 
       if (!question) return
@@ -415,13 +488,26 @@ export const useConsultationStore = defineStore('consultation', {
           synchronizedWithBackend = this.syncRecordView(res)
         } catch (error: any) {
           const status = error?.response?.status
-          console.warn('保存单题答案到后端接口失败，尝试自动恢复:', error)
+          const responseData = error?.response?.data
+          const code = responseData?.code || responseData?.data?.errorCode || error?.code
+          const message = responseData?.message || responseData?.msg || error?.message || ''
+
+          console.warn('保存单题答案到后端接口失败:', error)
+
+          // 仅在明确返回 RECORD_SUBMITTED 错误时，才触发“已提交”只读锁与 Toast
+          if (
+            code === 'RECORD_SUBMITTED' ||
+            responseData?.data?.errorCode === 'RECORD_SUBMITTED' ||
+            String(message).includes('已经提交')
+          ) {
+            this.readOnly = true
+            showToast('本次预问诊已经提交，无法修改')
+            return
+          }
+
+          // 常规版本冲突 (409) 或 记录超时 (404)：自动重新 bootstrap 更新 recordVersion 并重试
           try {
-            if (status === 404) {
-              // 记录不可用（会话过期重建）：重建记录并回放全部答案（含本题）
-              const recovered = await this.resyncRecord()
-              synchronizedWithBackend = recovered ? hasAuthoritativeFlow(recovered) : false
-            } else if (status === 409 || error?.code === 409 || String(error).includes('409')) {
+            if (status === 404 || status === 409 || error?.code === 409) {
               const refreshRes = await bootstrapPreconsult({
                 departmentId: resolveDepartmentId(this.visitInfo),
                 patientSnapshot: buildPatientSnapshot(this.profile)
@@ -443,7 +529,7 @@ export const useConsultationStore = defineStore('consultation', {
               }
             }
           } catch (retryErr) {
-            console.error('自动恢复后重试保存仍然失败:', retryErr)
+            console.error('重步 recordVersion 后保存答案仍然失败:', retryErr)
           }
         }
       }
@@ -451,13 +537,24 @@ export const useConsultationStore = defineStore('consultation', {
       if (!synchronizedWithBackend) {
         this.currentIndex += 1
       }
-      if (this.isRevising && this.currentIndex >= this.questions.length) {
-        this.currentIndex = this.questions.length - 1
+      if (this.isRevising) {
+        const nextUnanswered = this.firstUnansweredIndex
+        if (nextUnanswered >= 0 && nextUnanswered > this.currentIndex) {
+          this.currentIndex = nextUnanswered
+        } else if (this.currentIndex >= this.questions.length) {
+          this.currentIndex = this.questions.length - 1
+        }
       }
       this.ensureCurrentQuestionMessage()
       this.persist()
     },
     reviseQuestion(questionId: string) {
+      if (this.readOnly || this.consultationNo) {
+        this.readOnly = true
+        showToast('本次预问诊已经提交，无法修改')
+        return
+      }
+
       const index = this.questions.findIndex((item) => item.id === questionId)
 
       if (index < 0) return
@@ -480,15 +577,37 @@ export const useConsultationStore = defineStore('consultation', {
 
       this.persist()
     },
-    finishRevision() {
+    finishRevision(): boolean {
+      if (this.readOnly) {
+        showToast('本次预问诊已经提交，无法修改')
+        return false
+      }
       this.isRevising = false
+      if (this.hasUnansweredRequiredQuestions) {
+        if (this.firstUnansweredIndex >= 0) {
+          this.currentIndex = this.firstUnansweredIndex
+        }
+        this.rebuildMessagesFromAnswers()
+        this.persist()
+        return false
+      }
+      this.rebuildMessagesFromAnswers()
       this.persist()
+      return true
     },
     addMaterial(material: UploadMaterial) {
+      if (this.readOnly) {
+        showToast('本次预问诊已经提交，无法补充资料')
+        return
+      }
       this.materials.push(material)
       this.persist()
     },
     removeMaterial(id: string) {
+      if (this.readOnly) {
+        showToast('本次预问诊已经提交，无法删除资料')
+        return
+      }
       this.materials = this.materials.filter((item) => item.id !== id)
       this.persist()
     },
@@ -519,25 +638,44 @@ export const useConsultationStore = defineStore('consultation', {
       })
       this.persist()
     },
-    async submitReport() {
+    /** 提交预问诊；返回是否成功（已提交过视为成功）。失败时不再降级生成假编号。 */
+    async submitReport(): Promise<boolean> {
+      if (this.readOnly || this.consultationNo) {
+        this.readOnly = true
+        showToast('本次预问诊已经提交，请勿重复提交')
+        return true
+      }
       if (this.recordId) {
         try {
           const res = await submitPreconsultApi(this.recordId, {
             recordVersion: this.recordVersion
           })
-          if (res && res.consultationNo) {
-            this.consultationNo = res.consultationNo
-          } else {
-            this.consultationNo = `PI${new Date().getFullYear()}${String(Date.now()).slice(-8)}`
-          }
+          this.consultationNo =
+            (res && res.consultationNo) ||
+            (res && res.recordId ? String(res.recordId) : this.recordId)
+          this.readOnly = true
           this.persist()
-          return
-        } catch (error) {
-          console.warn('提交后端预问诊接口失败，降级本地生成编号:', error)
+          return true
+        } catch (error: any) {
+          console.warn('提交后端预问诊接口失败:', error)
+          const responseData = error?.response?.data
+          const code = responseData?.code || responseData?.data?.errorCode
+          const msg = responseData?.message || responseData?.msg || error?.message || ''
+          if (code === 'RECORD_SUBMITTED' || String(msg).includes('已经提交')) {
+            // 后端已提交：本地补齐只读状态，视为成功
+            this.readOnly = true
+            this.consultationNo = this.consultationNo || this.recordId
+            this.persist()
+            return true
+          }
+          showToast(msg || '提交失败，请稍后重试')
+          return false
         }
       }
+      // 无后端记录（离线/降级模式）：本地生成编号，保持流程可走通
       this.consultationNo = `PI${new Date().getFullYear()}${String(Date.now()).slice(-8)}`
       this.persist()
+      return true
     },
     async reset() {
       Object.assign(this, defaultState())

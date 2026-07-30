@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
 import QuestionComposer from '@/components/QuestionComposer.vue'
@@ -14,7 +15,7 @@ const chatBody = ref<HTMLElement>()
 const progress = computed(() => Math.min(store.progressPercent, 100))
 
 onMounted(async () => {
-  if ((route.query.revise === '1' || store.report) && store.resumeForRevision()) {
+  if (route.query.revise === '1' && (await store.resumeForRevision())) {
     scrollToBottom()
     return
   }
@@ -44,17 +45,32 @@ async function answer(value: AnswerValue) {
   // 必须等待答案保存与索引推进完成后，才能正确判断问卷是否已答完
   await store.answerCurrent(value)
 
-  if (store.isRevising && !store.currentQuestion) {
+  if (!store.currentQuestion || store.currentIndex >= store.questions.length) {
+    if (store.hasUnansweredRequiredQuestions) {
+      showToast('还有未回答的题目，请继续回答')
+      if (store.firstUnansweredIndex >= 0) {
+        store.currentIndex = store.firstUnansweredIndex
+        store.ensureCurrentQuestionMessage()
+        scrollToBottom()
+      }
+      return
+    }
     await store.buildReport()
     store.finishRevision()
-    router.push('/report')
-  } else if (!store.isRevising && !store.currentQuestion) {
-    await store.buildReport()
     router.push('/report')
   }
 }
 
 function finishRevision() {
+  if (store.hasUnansweredRequiredQuestions) {
+    showToast('还有未回答的题目，请继续回答')
+    if (store.firstUnansweredIndex >= 0) {
+      store.currentIndex = store.firstUnansweredIndex
+      store.ensureCurrentQuestionMessage()
+      scrollToBottom()
+    }
+    return
+  }
   store.buildReport().then(() => {
     store.finishRevision()
     router.push('/report')
@@ -73,6 +89,13 @@ function selectBodyPart() {
 <template>
   <div class="page consult-page">
     <AppNavBar title="智能问诊" back />
+    <van-notice-bar
+      v-if="store.readOnly"
+      color="#059669"
+      background="#ecfdf5"
+      left-icon="info-o"
+      text="本次预问诊已提交成功，记录仅供查看，无法修改。"
+    />
     <van-progress :percentage="progress" stroke-width="4" :show-pivot="false" />
 
     <main ref="chatBody" class="chat-body">
@@ -90,7 +113,10 @@ function selectBodyPart() {
       </div>
     </main>
 
-    <div v-if="store.currentQuestion && !store.isRevising" class="fixed-action">
+    <div v-if="store.readOnly" class="fixed-action">
+      <van-button block disabled type="primary">本次预问诊已经提交，仅供查看</van-button>
+    </div>
+    <div v-else-if="store.currentQuestion && !store.isRevising" class="fixed-action">
       <QuestionComposer
         :question="store.currentQuestion"
         :answer="store.answers[store.currentQuestion.id]"
@@ -114,6 +140,11 @@ function selectBodyPart() {
     <div v-else-if="store.isRevising && !store.currentQuestion" class="fixed-action">
       <van-button type="primary" block @click="finishRevision">
         完成修改，查看报告
+      </van-button>
+    </div>
+    <div v-else class="fixed-action">
+      <van-button type="primary" block @click="finishRevision">
+        完成问诊，查看报告
       </van-button>
     </div>
   </div>

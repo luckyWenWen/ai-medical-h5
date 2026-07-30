@@ -58,6 +58,7 @@ const router = createRouter({
 })
 
 import { extractAndSaveUrlToken } from '@/api/request'
+import { useConsultationStore } from '@/stores/consultation'
 
 router.beforeEach((to) => {
   if (to.query.token || to.query.satoken || to.query.ticket) {
@@ -67,6 +68,17 @@ router.beforeEach((to) => {
     }
   } else {
     extractAndSaveUrlToken()
+  }
+
+  const store = useConsultationStore()
+  if (to.name === 'consultation') {
+    if (!store.visitInfo.department || !store.profile.name || !store.profile.phone) {
+      return { name: 'visit' }
+    }
+  } else if (to.name === 'report') {
+    if (store.hasUnansweredRequiredQuestions || !store.questions.length) {
+      return { name: 'consultation' }
+    }
   }
 })
 

@@ -18,7 +18,7 @@ async function next() {
     return
   }
 
-  store.saveProfile({ ...form })
+  await store.saveProfile({ ...form })
   await store.loadQuestions()
   router.push('/consultation')
 }

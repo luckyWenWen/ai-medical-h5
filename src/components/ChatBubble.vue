@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import boyAvatar from '@/assets/image/boy.png'
 import doctorAvatar from '@/assets/image/doctor.png'
 import girlAvatar from '@/assets/image/girl.png'
+import { useConsultationStore } from '@/stores/consultation'
 import type { Gender } from '@/types/consultation'
 
 const props = defineProps<{
@@ -13,9 +14,11 @@ const props = defineProps<{
   patientGender?: Gender | ''
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   revise: [questionId: string]
 }>()
+
+const store = useConsultationStore()
 
 const avatarUrl = computed(() => {
   if (props.role === 'doctor') return doctorAvatar
@@ -37,10 +40,10 @@ const avatarAlt = computed(() => (props.role === 'doctor' ? '医生头像' : '�
     <div class="bubble">
       <div class="bubble__text">{{ content }}</div>
       <button
-        v-if="role === 'patient' && editable && questionId"
+        v-if="role === 'patient' && editable && questionId && !store.readOnly"
         class="bubble__edit"
         type="button"
-        @click="$emit('revise', questionId)"
+        @click="emit('revise', questionId)"
       >
         重新修改
       </button>

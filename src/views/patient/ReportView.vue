@@ -38,6 +38,18 @@ const genderText = computed(() => {
 })
 
 onMounted(async () => {
+  if (store.readOnly || store.consultationNo) {
+    // 已提交：只读查看，仍需拉取报告内容展示
+    if (!store.report) {
+      await store.buildReport()
+    }
+    return
+  }
+  if (store.hasUnansweredRequiredQuestions) {
+    showToast('还有未回答的题目，请继续回答')
+    router.replace('/consultation')
+    return
+  }
   if (!store.report) {
     await store.buildReport()
   }
@@ -56,12 +68,28 @@ function previewMaterial(item: UploadMaterial) {
   }
 }
 
-function submit() {
-  store.submitReport()
-  router.push('/success')
+async function submit() {
+  if (store.readOnly || store.consultationNo) {
+    showToast('本次预问诊已经提交，无法重复提交')
+    return
+  }
+  if (store.hasUnansweredRequiredQuestions) {
+    showToast('还有未回答的题目，请继续回答')
+    router.push('/consultation')
+    return
+  }
+  // 必须等待后端确认提交成功再跳转，失败留在本页提示用户
+  const ok = await store.submitReport()
+  if (ok) {
+    router.push('/success')
+  }
 }
 
 function revise() {
+  if (store.readOnly || store.consultationNo) {
+    showToast('本次预问诊已经提交，只能查看，无法修改')
+    return
+  }
   router.push({ path: '/consultation', query: { revise: '1' } })
 }
 </script>
@@ -69,6 +97,13 @@ function revise() {
 <template>
   <div class="page report-page">
     <AppNavBar title="报告确认" back />
+    <van-notice-bar
+      v-if="store.readOnly || store.consultationNo"
+      color="#059669"
+      background="#ecfdf5"
+      left-icon="info-o"
+      :text="`本次预问诊已提交（单号：${store.consultationNo || '已归档'}），记录已归档为只读模式，无法修改。`"
+    />
     <main class="page-body report-body">
       <article class="report-card">
         <section class="basic-panel">
@@ -148,7 +183,12 @@ function revise() {
     </main>
 
     <div class="fixed-action report-fixed-action">
-      <div class="fixed-action__inner action-row">
+      <div v-if="store.readOnly || store.consultationNo" class="fixed-action__inner">
+        <van-button class="report-action" type="primary" block disabled>
+          本次预问诊已经提交（仅供查看）
+        </van-button>
+      </div>
+      <div v-else class="fixed-action__inner action-row">
         <van-button class="report-action report-action--secondary" @click="revise">
           返回修改
         </van-button>

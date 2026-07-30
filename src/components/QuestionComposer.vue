@@ -177,6 +177,19 @@ function submitUnknown() {
   background: var(--theme-surface);
   padding: 9px 10px;
   line-height: 1.35;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.option-tile:active {
+  background: var(--theme-primary-muted, #eef2ff);
+}
+
+.option-tile :deep(.van-radio__label),
+.option-tile :deep(.van-checkbox__label) {
+  width: 100%;
+  color: var(--theme-text-strong);
+  font-weight: 500;
 }
 
 .composer__actions {
