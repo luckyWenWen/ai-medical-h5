@@ -260,13 +260,16 @@ export async function bootstrapPreconsult(payload?: {
   consentVersion?: string
   agreed?: boolean
   departmentId?: number
+  /** 患者基本信息快照（姓名/性别/年龄/手机号等），随记录落库供医生端对齐患者 */
+  patientSnapshot?: Record<string, unknown>
 }): Promise<PreconsultRecordViewBackend> {
   const reqId = payload?.requestId || generateUUID()
   return http.post<PreconsultRecordViewBackend>('/preconsult/client/records/bootstrap', {
     requestId: reqId,
     consentVersion: payload?.consentVersion || '2026-07-v1',
     agreed: payload?.agreed ?? true,
-    departmentId: payload?.departmentId
+    departmentId: payload?.departmentId,
+    patientSnapshot: payload?.patientSnapshot
   })
 }
 

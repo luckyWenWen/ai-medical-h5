@@ -173,6 +173,19 @@ function resolveDepartmentId(visitInfo: VisitInfo): number | undefined {
   return Number.isInteger(departmentId) && departmentId > 0 ? departmentId : undefined
 }
 
+/** 构建随 bootstrap 落库的患者快照；姓名为空视为未填写，返回 undefined 不上送 */
+function buildPatientSnapshot(profile: PatientProfile): Record<string, unknown> | undefined {
+  if (!profile.name) return undefined
+  return {
+    name: profile.name,
+    gender: profile.gender,
+    age: profile.age,
+    phone: profile.phone,
+    idCard: profile.idCard || '',
+    cardNo: profile.cardNo || ''
+  }
+}
+
 export const useConsultationStore = defineStore('consultation', {
   state: (): ConsultationState => ({
     ...defaultState(),
@@ -271,7 +284,8 @@ export const useConsultationStore = defineStore('consultation', {
       let loadedFromBackend = false
       try {
         const bootstrapRes = await bootstrapPreconsult({
-          departmentId: resolveDepartmentId(this.visitInfo)
+          departmentId: resolveDepartmentId(this.visitInfo),
+          patientSnapshot: buildPatientSnapshot(this.profile)
         })
         if (bootstrapRes && bootstrapRes.recordId) {
           loadedFromBackend = true
@@ -338,7 +352,8 @@ export const useConsultationStore = defineStore('consultation', {
     async resyncRecord(): Promise<PreconsultRecordViewBackend | null> {
       const knownQuestions = [...this.questions]
       const refreshRes = await bootstrapPreconsult({
-        departmentId: resolveDepartmentId(this.visitInfo)
+        departmentId: resolveDepartmentId(this.visitInfo),
+        patientSnapshot: buildPatientSnapshot(this.profile)
       })
       if (!refreshRes || !refreshRes.recordId) return null
       this.recordId = String(refreshRes.recordId)
@@ -408,7 +423,8 @@ export const useConsultationStore = defineStore('consultation', {
               synchronizedWithBackend = recovered ? hasAuthoritativeFlow(recovered) : false
             } else if (status === 409 || error?.code === 409 || String(error).includes('409')) {
               const refreshRes = await bootstrapPreconsult({
-                departmentId: resolveDepartmentId(this.visitInfo)
+                departmentId: resolveDepartmentId(this.visitInfo),
+                patientSnapshot: buildPatientSnapshot(this.profile)
               })
               if (refreshRes && typeof refreshRes.recordVersion === 'number') {
                 this.recordId = String(refreshRes.recordId || this.recordId)

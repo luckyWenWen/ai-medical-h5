@@ -8,11 +8,9 @@ import type { PatientProfile } from '@/types/consultation'
 
 const router = useRouter()
 const store = useConsultationStore()
-const mockCardNo = 'JZK202607240001'
-const form = reactive<PatientProfile>({
-  ...store.profile,
-  cardNo: store.profile.cardNo || mockCardNo
-})
+// 就诊卡号由患者自行填写（可选）。不能预置统一的 mock 值：
+// 卡号会随快照落库，所有人相同会导致医生端按卡号判重/匹配时张冠李戴
+const form = reactive<PatientProfile>({ ...store.profile })
 
 async function next() {
   if (!form.name || !form.gender || !form.age || !form.phone) {
@@ -49,7 +47,7 @@ async function next() {
         />
         <van-field v-model="form.phone" type="tel" label="手机号" placeholder="请输入手机号" />
         <van-field v-model="form.idCard" label="身份证号" placeholder="可选" />
-        <van-field v-model="form.cardNo" label="就诊卡号" readonly />
+        <van-field v-model="form.cardNo" label="就诊卡号" placeholder="可选" />
       </van-form>
     </main>
 
