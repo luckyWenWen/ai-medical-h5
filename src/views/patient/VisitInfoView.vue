@@ -3,12 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import {
-  getRegistrationList,
-  type RegistrationBackend
+  getDepartmentList,
+  getDoctorList,
+  type DepartmentOption,
+  type DoctorOption
 } from '@/api/consultation'
 import AppNavBar from '@/components/AppNavBar.vue'
 import { useConsultationStore } from '@/stores/consultation'
-import type { Gender, VisitInfo } from '@/types/consultation'
+import type { VisitInfo } from '@/types/consultation'
 
 interface PickerOption {
   text?: string | number
@@ -17,78 +19,121 @@ interface PickerOption {
 
 const router = useRouter()
 const store = useConsultationStore()
-const form = reactive<VisitInfo>({ ...store.visitInfo })
-const showRegistrationPicker = ref(false)
-const loadingRegistrations = ref(false)
-const registrations = ref<RegistrationBackend[]>([])
-const registrationColumns = computed(() =>
-  registrations.value.map((reg) => ({
-    text: `${reg.regNo} · ${reg.patientName} · ${reg.departmentName}`,
-    value: reg.regNo
+const form = reactive<VisitInfo>({
+  ...store.visitInfo,
+  appointmentNo: store.visitInfo.appointmentNo || createAppointmentNo(),
+  visitTime: store.visitInfo.visitTime || formatDateTime(new Date())
+})
+const showDepartmentPicker = ref(false)
+const showDoctorPicker = ref(false)
+const loadingDepartments = ref(false)
+const loadingDoctors = ref(false)
+const departments = ref<DepartmentOption[]>([])
+const doctors = ref<DoctorOption[]>([])
+const departmentColumns = computed(() =>
+  departments.value.map((department) => ({
+    text: department.label,
+    value: department.value
   }))
 )
-const selectedRegistration = computed(() =>
-  registrations.value.find((reg) => reg.regNo === form.regNo)
+const doctorColumns = computed(() =>
+  doctors.value.map((doctor) => ({
+    text: doctor.label,
+    value: doctor.value
+  }))
 )
 
-function mapGender(gender: string): Gender | '' {
-  const upper = (gender || '').toUpperCase()
-  if (upper === 'M' || upper === 'MALE') return 'male'
-  if (upper === 'F' || upper === 'FEMALE') return 'female'
-  return ''
+function padTime(value: number) {
+  return String(value).padStart(2, '0')
 }
 
-async function loadRegistrations() {
-  loadingRegistrations.value = true
+function formatDateTime(date: Date) {
+  const year = date.getFullYear()
+  const month = padTime(date.getMonth() + 1)
+  const day = padTime(date.getDate())
+  const hour = padTime(date.getHours())
+  const minute = padTime(date.getMinutes())
+
+  return `${year}-${month}-${day} ${hour}:${minute}`
+}
+
+function createAppointmentNo() {
+  const now = new Date()
+  const date = `${now.getFullYear()}${padTime(now.getMonth() + 1)}${padTime(now.getDate())}`
+
+  return `GH${date}${String(now.getTime()).slice(-6)}`
+}
+
+async function loadDepartments() {
+  loadingDepartments.value = true
+
   try {
-    registrations.value = await getRegistrationList()
-    if (!registrations.value.length) {
-      showToast('挂号单列表为空，请确认后端服务已启动')
-    }
+    departments.value = await getDepartmentList()
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '科室列表加载失败')
   } finally {
-    loadingRegistrations.value = false
+    loadingDepartments.value = false
   }
 }
 
-function chooseRegistration({ selectedOptions }: { selectedOptions: PickerOption[] }) {
-  const regNo = selectedOptions[0]?.value ? String(selectedOptions[0].value) : ''
-  const reg = registrations.value.find((item) => item.regNo === regNo)
-  showRegistrationPicker.value = false
-  if (!reg) return
-
-  // 挂号数据自动带出就诊信息与患者身份，作为预问诊的业务主键
-  form.regNo = reg.regNo
-  form.appointmentNo = reg.regNo
-  form.department = reg.departmentName
-  form.departmentId = String(reg.departmentId)
-  form.doctor = reg.doctorName
-  form.visitTime = reg.visitTime
-  form.visitType = (reg.visitType || '').toUpperCase() === 'RETURN' ? 'return' : 'first'
-}
-
-async function next() {
-  const reg = selectedRegistration.value
-  if (!reg) {
-    showToast('请选择挂号单')
+async function loadDoctors(department: string) {
+  if (!department) {
+    doctors.value = []
     return
   }
 
-  await store.saveVisitInfo({ ...form })
-  // 患者身份来自挂号数据，不再手工填写
-  await store.saveProfile({
-    name: reg.patientName,
-    gender: mapGender(reg.gender),
-    age: reg.age ?? null,
-    phone: reg.phone || '',
-    idCard: store.profile.idCard || '',
-    cardNo: store.profile.cardNo || ''
-  })
-  await store.loadQuestions()
-  router.push('/consultation')
+  loadingDoctors.value = true
+
+  try {
+    doctors.value = await getDoctorList(department)
+  } catch (error) {
+    doctors.value = []
+    showToast(error instanceof Error ? error.message : '医生列表加载失败')
+  } finally {
+    loadingDoctors.value = false
+  }
+}
+
+function chooseDepartment({ selectedOptions }: { selectedOptions: PickerOption[] }) {
+  form.department = selectedOptions[0]?.text ? String(selectedOptions[0].text) : ''
+  form.departmentId = selectedOptions[0]?.value ? String(selectedOptions[0].value) : ''
+  form.doctor = ''
+  showDepartmentPicker.value = false
+  loadDoctors(form.department)
+}
+
+function openDoctorPicker() {
+  if (!form.department) {
+    showToast('请先选择科室')
+    return
+  }
+
+  showDoctorPicker.value = true
+}
+
+function chooseDoctor({ selectedOptions }: { selectedOptions: PickerOption[] }) {
+  form.doctor = selectedOptions[0]?.text ? String(selectedOptions[0].text) : ''
+  showDoctorPicker.value = false
+}
+
+function next() {
+  if (!form.department) {
+    showToast('请选择科室')
+    return
+  }
+
+  if (!form.doctor) {
+    showToast('请选择医生')
+    return
+  }
+
+  store.saveVisitInfo({ ...form })
+  router.push('/profile')
 }
 
 onMounted(() => {
-  loadRegistrations()
+  loadDepartments()
+  loadDoctors(form.department)
 })
 </script>
 
@@ -97,48 +142,58 @@ onMounted(() => {
     <AppNavBar title="就诊信息" back />
     <main class="page-body">
       <van-form class="surface form-panel">
+        <van-field label="就诊类型">
+          <template #input>
+            <van-radio-group v-model="form.visitType" direction="horizontal">
+              <van-radio name="first">初诊</van-radio>
+              <van-radio name="return">复诊</van-radio>
+            </van-radio-group>
+          </template>
+        </van-field>
         <van-field
-          :model-value="form.regNo"
-          label="挂号单"
-          placeholder="请选择挂号单"
+          v-model="form.department"
+          label="科室"
+          placeholder="请选择科室"
           readonly
           is-link
-          @click="showRegistrationPicker = true"
+          @click="showDepartmentPicker = true"
         />
-        <template v-if="selectedRegistration">
-          <van-field :model-value="selectedRegistration.patientName" label="姓名" readonly />
-          <van-field
-            :model-value="mapGender(selectedRegistration.gender) === 'male' ? '男' : '女'"
-            label="性别"
-            readonly
-          />
-          <van-field :model-value="String(selectedRegistration.age)" label="年龄" readonly />
-          <van-field :model-value="selectedRegistration.phone" label="手机号" readonly />
-          <van-field :model-value="form.department" label="科室" readonly />
-          <van-field :model-value="form.doctor" label="医生" readonly />
-          <van-field
-            :model-value="form.visitType === 'first' ? '初诊' : '复诊'"
-            label="就诊类型"
-            readonly
-          />
-          <van-field :model-value="form.visitTime" label="就诊时间" readonly />
-        </template>
+        <van-field
+          v-model="form.doctor"
+          label="医生"
+          placeholder="请选择医生"
+          readonly
+          is-link
+          @click="openDoctorPicker"
+        />
+        <van-field v-model="form.appointmentNo" label="挂号单号" readonly />
+        <van-field v-model="form.visitTime" label="就诊时间" readonly />
       </van-form>
     </main>
 
     <div class="fixed-action">
       <div class="fixed-action__inner">
-        <van-button type="primary" block @click="next">进入问诊</van-button>
+        <van-button type="primary" block @click="next">下一步</van-button>
       </div>
     </div>
 
-    <van-popup v-model:show="showRegistrationPicker" round position="bottom">
+    <van-popup v-model:show="showDepartmentPicker" round position="bottom">
       <van-picker
-        title="选择挂号单"
-        :columns="registrationColumns"
-        :loading="loadingRegistrations"
-        @cancel="showRegistrationPicker = false"
-        @confirm="chooseRegistration"
+        title="选择科室"
+        :columns="departmentColumns"
+        :loading="loadingDepartments"
+        @cancel="showDepartmentPicker = false"
+        @confirm="chooseDepartment"
+      />
+    </van-popup>
+
+    <van-popup v-model:show="showDoctorPicker" round position="bottom">
+      <van-picker
+        title="选择医生"
+        :columns="doctorColumns"
+        :loading="loadingDoctors"
+        @cancel="showDoctorPicker = false"
+        @confirm="chooseDoctor"
       />
     </van-popup>
   </div>

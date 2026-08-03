@@ -329,7 +329,6 @@ export const useConsultationStore = defineStore('consultation', {
       try {
         const bootstrapRes = await bootstrapPreconsult({
           departmentId: resolveDepartmentId(this.visitInfo),
-          registrationNo: this.visitInfo.regNo,
           patientSnapshot: buildPatientSnapshot(this.profile)
         })
         if (bootstrapRes && bootstrapRes.recordId) {
@@ -383,13 +382,11 @@ export const useConsultationStore = defineStore('consultation', {
       return true
     },
     async saveVisitInfo(payload: VisitInfo) {
-      // 挂号流水号是业务主键：换挂号单即换人换流程，必须整体重置
-      const regNoChanged = (this.visitInfo.regNo || '') !== (payload.regNo || '')
       const departmentChanged = this.visitInfo.departmentId !== payload.departmentId
       const wasSubmitted = this.readOnly || Boolean(this.consultationNo)
 
       this.visitInfo = payload
-      if (regNoChanged || departmentChanged || wasSubmitted) {
+      if (departmentChanged || wasSubmitted) {
         const savedProfile = { ...this.profile }
         const savedVisitInfo = { ...this.visitInfo }
         await this.reset()
@@ -423,7 +420,6 @@ export const useConsultationStore = defineStore('consultation', {
       const knownQuestions = [...this.questions]
       const refreshRes = await bootstrapPreconsult({
         departmentId: resolveDepartmentId(this.visitInfo),
-        registrationNo: this.visitInfo.regNo,
         patientSnapshot: buildPatientSnapshot(this.profile)
       })
       if (!refreshRes || !refreshRes.recordId) return null
@@ -514,7 +510,6 @@ export const useConsultationStore = defineStore('consultation', {
             if (status === 404 || status === 409 || error?.code === 409) {
               const refreshRes = await bootstrapPreconsult({
                 departmentId: resolveDepartmentId(this.visitInfo),
-                registrationNo: this.visitInfo.regNo,
                 patientSnapshot: buildPatientSnapshot(this.profile)
               })
               if (refreshRes && typeof refreshRes.recordVersion === 'number') {

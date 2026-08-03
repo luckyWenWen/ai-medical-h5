@@ -9,8 +9,6 @@ export interface VisitInfo {
   doctor: string
   appointmentNo: string
   visitTime: string
-  /** 挂号流水号：预问诊记录的业务主键，同一流水号对应同一患者的同一条记录 */
-  regNo?: string
 }
 
 export interface PatientProfile {
