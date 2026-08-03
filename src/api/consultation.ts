@@ -260,6 +260,8 @@ export async function bootstrapPreconsult(payload?: {
   consentVersion?: string
   agreed?: boolean
   departmentId?: number
+  /** 挂号流水号：后端以此为业务主键定位患者与问诊记录 */
+  registrationNo?: string
   /** 患者基本信息快照（姓名/性别/年龄/手机号等），随记录落库供医生端对齐患者 */
   patientSnapshot?: Record<string, unknown>
 }): Promise<PreconsultRecordViewBackend> {
@@ -269,8 +271,35 @@ export async function bootstrapPreconsult(payload?: {
     consentVersion: payload?.consentVersion || '2026-07-v1',
     agreed: payload?.agreed ?? true,
     departmentId: payload?.departmentId,
+    registrationNo: payload?.registrationNo,
     patientSnapshot: payload?.patientSnapshot
   })
+}
+
+export interface RegistrationBackend {
+  regNo: string
+  patientName: string
+  gender: string
+  age: number
+  phone: string
+  departmentId: number
+  departmentName: string
+  doctorName: string
+  visitType: string
+  visitTime: string
+}
+
+/** 查询预置挂号单列表；后端不可用时返回空数组，由页面提示 */
+export async function getRegistrationList(): Promise<RegistrationBackend[]> {
+  try {
+    const list = await http.get<RegistrationBackend[]>('/preconsult/client/registrations')
+    if (Array.isArray(list)) {
+      return list
+    }
+  } catch (error) {
+    console.warn('获取挂号单列表失败:', error)
+  }
+  return []
 }
 
 export async function saveAnswersApi(
