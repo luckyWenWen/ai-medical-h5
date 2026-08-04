@@ -117,7 +117,7 @@ async function confirm() {
 .body-selector__intro {
   position: relative;
   overflow: hidden;
-  padding: 20px;
+  padding: 10px;
   background:
     radial-gradient(circle at 92% 12%, var(--theme-primary-soft) 0 74px, transparent 75px),
     var(--theme-surface);
@@ -133,7 +133,6 @@ async function confirm() {
 }
 
 .body-selector__intro h1 {
-  max-width: 82%;
   margin: 0;
   color: var(--theme-text);
   font-size: 20px;

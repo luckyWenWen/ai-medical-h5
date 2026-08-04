@@ -32,6 +32,15 @@ onMounted(async () => {
   } else {
     store.ensureCurrentQuestionMessage()
   }
+
+  if (store.isSubmittedRecord) {
+    const reportReady = await store.buildReport()
+    if (reportReady) {
+      router.replace('/report')
+      return
+    }
+  }
+
   observeFixedAction()
   scrollToBottom()
 })

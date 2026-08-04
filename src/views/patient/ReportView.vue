@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { showImagePreview, showToast } from 'vant'
+import { showConfirmDialog, showImagePreview, showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
 import { useConsultationStore } from '@/stores/consultation'
 import type { UploadMaterial } from '@/types/consultation'
@@ -9,6 +9,7 @@ import type { UploadMaterial } from '@/types/consultation'
 const router = useRouter()
 const store = useConsultationStore()
 const report = computed(() => store.report)
+const hasRiskTips = computed(() => Boolean(report.value?.riskTips?.length))
 const textSections = computed(() => [
   {
     title: '主诉',
@@ -82,6 +83,19 @@ async function submit() {
     return
   }
   // 必须等待后端确认提交成功再跳转，失败留在本页提示用户
+  if (hasRiskTips.value) {
+    try {
+      await showConfirmDialog({
+        title: '风险提示确认',
+        message: '本次预问诊存在风险提示，请确认您已阅读并知晓相关风险。若症状严重或持续加重，请及时就医。',
+        confirmButtonText: '已知晓，继续提交',
+        cancelButtonText: '返回查看'
+      })
+    } catch {
+      return
+    }
+  }
+
   const ok = await store.submitReport()
   if (ok) {
     router.push('/success')
@@ -210,7 +224,7 @@ function revise() {
 }
 
 .report-body {
-  padding: 14px 12px 20px;
+  padding: 14px 12px calc(92px + env(safe-area-inset-bottom));
 }
 
 .report-card {
@@ -383,7 +397,14 @@ function revise() {
 }
 
 .report-fixed-action {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
   margin-top: 0;
+  border-top: 1px solid var(--theme-border);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
 }
 
 .action-row {

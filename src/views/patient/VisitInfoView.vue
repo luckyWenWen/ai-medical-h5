@@ -30,10 +30,21 @@ const showDoctorPicker = ref(false)
 const loadingDepartments = ref(false)
 const loadingDoctors = ref(false)
 const submitting = ref(false)
+const departmentKeyword = ref('')
 const departments = ref<DepartmentOption[]>([])
 const doctors = ref<DoctorOption[]>([])
+const filteredDepartments = computed(() => {
+  const keyword = departmentKeyword.value.trim().toLowerCase()
+  if (!keyword) return departments.value
+
+  return departments.value.filter((department) => {
+    const label = department.label.toLowerCase()
+    const value = String(department.value).toLowerCase()
+    return label.includes(keyword) || value.includes(keyword)
+  })
+})
 const departmentColumns = computed(() =>
-  departments.value.map((department) => ({
+  filteredDepartments.value.map((department) => ({
     text: department.label,
     value: department.value
   }))
@@ -97,10 +108,16 @@ async function loadDoctors(department: string) {
 }
 
 function chooseDepartment({ selectedOptions }: { selectedOptions: PickerOption[] }) {
+  if (!selectedOptions[0]) {
+    showToast('未找到匹配科室')
+    return
+  }
+
   form.department = selectedOptions[0]?.text ? String(selectedOptions[0].text) : ''
   form.departmentId = selectedOptions[0]?.value ? String(selectedOptions[0].value) : ''
   form.doctor = ''
   showDepartmentPicker.value = false
+  departmentKeyword.value = ''
   loadDoctors(form.department)
 }
 
@@ -194,14 +211,29 @@ onMounted(() => {
       </div>
     </div>
 
-    <van-popup v-model:show="showDepartmentPicker" round position="bottom">
+    <van-popup
+      v-model:show="showDepartmentPicker"
+      round
+      position="bottom"
+      @closed="departmentKeyword = ''"
+    >
+      <van-search
+        v-model="departmentKeyword"
+        class="department-search"
+        shape="round"
+        placeholder="搜索科室"
+      />
       <van-picker
+        v-if="loadingDepartments || departmentColumns.length"
         title="选择科室"
         :columns="departmentColumns"
         :loading="loadingDepartments"
         @cancel="showDepartmentPicker = false"
         @confirm="chooseDepartment"
       />
+      <div v-else class="department-empty">
+        未找到匹配科室
+      </div>
     </van-popup>
 
     <van-popup v-model:show="showDoctorPicker" round position="bottom">
@@ -219,5 +251,18 @@ onMounted(() => {
 <style scoped>
 .form-panel {
   overflow: hidden;
+}
+
+.department-search {
+  padding-top: 12px;
+  padding-bottom: 4px;
+}
+
+.department-empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--theme-text-muted);
+  font-size: 14px;
 }
 </style>

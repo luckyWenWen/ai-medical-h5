@@ -75,8 +75,11 @@ router.beforeEach((to) => {
     if (!store.visitInfo.department || !store.profile.name || !store.profile.phone) {
       return { name: 'visit' }
     }
+    if (store.isSubmittedRecord) {
+      return { name: 'report' }
+    }
   } else if (to.name === 'report') {
-    if (store.hasUnansweredRequiredQuestions || !store.questions.length) {
+    if (!store.isSubmittedRecord && (store.hasUnansweredRequiredQuestions || !store.questions.length)) {
       return { name: 'consultation' }
     }
   }
