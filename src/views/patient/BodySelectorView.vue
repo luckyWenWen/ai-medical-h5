@@ -98,7 +98,7 @@ async function confirm() {
       <van-empty v-else description="当前问题未配置可选部位" />
     </main>
 
-    <div class="fixed-action">
+    <div class="fixed-action body-selector-action">
       <div class="fixed-action__inner action-row">
         <van-button plain type="primary" :loading="submitting" @click="continueFlow(null)">
           不清楚
@@ -111,7 +111,7 @@ async function confirm() {
 
 <style scoped>
 .body-selector {
-  padding-bottom: 110px;
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
 }
 
 .body-selector__intro {
@@ -200,5 +200,16 @@ async function confirm() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.body-selector-action {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  margin-top: 0;
+  border-top: 1px solid var(--theme-border);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
 }
 </style>
