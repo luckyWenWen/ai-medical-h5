@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
@@ -12,10 +12,17 @@ const router = useRouter()
 const route = useRoute()
 const store = useConsultationStore()
 const chatBody = ref<HTMLElement>()
+const fixedAction = ref<HTMLElement>()
+const composerHeight = ref(210)
+let resizeObserver: ResizeObserver | null = null
 const progress = computed(() => Math.min(store.progressPercent, 100))
+const consultStyle = computed(() => ({
+  '--composer-height': `${composerHeight.value}px`
+}))
 
 onMounted(async () => {
   if (route.query.revise === '1' && (await store.resumeForRevision())) {
+    observeFixedAction()
     scrollToBottom()
     return
   }
@@ -25,7 +32,12 @@ onMounted(async () => {
   } else {
     store.ensureCurrentQuestionMessage()
   }
+  observeFixedAction()
   scrollToBottom()
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
 })
 
 watch(
@@ -38,6 +50,22 @@ function scrollToBottom() {
     if (chatBody.value) {
       chatBody.value.scrollTop = chatBody.value.scrollHeight
     }
+  })
+}
+
+function observeFixedAction() {
+  nextTick(() => {
+    if (!fixedAction.value) return
+
+    resizeObserver?.disconnect()
+    composerHeight.value = fixedAction.value.offsetHeight || composerHeight.value
+    if (typeof ResizeObserver === 'undefined') return
+    resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      composerHeight.value = Math.ceil(entry.contentRect.height)
+      scrollToBottom()
+    })
+    resizeObserver.observe(fixedAction.value)
   })
 }
 
@@ -55,7 +83,11 @@ async function answer(value: AnswerValue) {
       }
       return
     }
-    await store.buildReport()
+    const reportReady = await store.buildReport()
+    if (!reportReady) {
+      scrollToBottom()
+      return
+    }
     store.finishRevision()
     router.push('/report')
   }
@@ -71,7 +103,11 @@ function finishRevision() {
     }
     return
   }
-  store.buildReport().then(() => {
+  store.buildReport().then((reportReady) => {
+    if (!reportReady) {
+      scrollToBottom()
+      return
+    }
     store.finishRevision()
     router.push('/report')
   })
@@ -87,7 +123,7 @@ function selectBodyPart() {
 </script>
 
 <template>
-  <div class="page consult-page">
+  <div class="page consult-page" :style="consultStyle">
     <AppNavBar title="智能问诊" back />
     <van-notice-bar
       v-if="store.readOnly"
@@ -113,10 +149,10 @@ function selectBodyPart() {
       </div>
     </main>
 
-    <div v-if="store.readOnly" class="fixed-action">
+    <div v-if="store.readOnly" ref="fixedAction" class="fixed-action">
       <van-button block disabled type="primary">本次预问诊已经提交，仅供查看</van-button>
     </div>
-    <div v-else-if="store.currentQuestion && !store.isRevising" class="fixed-action">
+    <div v-else-if="store.currentQuestion" ref="fixedAction" class="fixed-action">
       <QuestionComposer
         :question="store.currentQuestion"
         :answer="store.answers[store.currentQuestion.id]"
@@ -125,24 +161,7 @@ function selectBodyPart() {
         @upload="upload"
       />
     </div>
-    <div v-else-if="store.isRevising && store.currentQuestion" class="fixed-action">
-      <QuestionComposer
-        :question="store.currentQuestion"
-        :answer="store.answers[store.currentQuestion.id]"
-        @submit="answer"
-        @body-part="selectBodyPart"
-        @upload="upload"
-      />
-      <van-button type="primary" block class="finish-revision-btn" @click="finishRevision">
-        完成修改
-      </van-button>
-    </div>
-    <div v-else-if="store.isRevising && !store.currentQuestion" class="fixed-action">
-      <van-button type="primary" block @click="finishRevision">
-        完成修改，查看报告
-      </van-button>
-    </div>
-    <div v-else class="fixed-action">
+    <div v-else ref="fixedAction" class="fixed-action">
       <van-button type="primary" block @click="finishRevision">
         完成问诊，查看报告
       </van-button>
@@ -159,7 +178,7 @@ function selectBodyPart() {
 .chat-body {
   height: calc(100vh - 102px - env(safe-area-inset-bottom));
   overflow-y: auto;
-  padding: 10px 14px 210px;
+  padding: 10px 14px calc(var(--composer-height, 210px) + 14px);
 }
 
 .chat-body__inner {
@@ -178,7 +197,4 @@ function selectBodyPart() {
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
 }
 
-.finish-revision-btn {
-  margin-top: 8px;
-}
 </style>

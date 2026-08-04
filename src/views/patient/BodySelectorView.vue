@@ -39,7 +39,8 @@ async function continueFlow(answer: string[] | null) {
   try {
     await store.answerCurrent(answer)
     if (!store.currentQuestion) {
-      await store.buildReport()
+      const reportReady = await store.buildReport()
+      if (!reportReady) return
       await router.replace('/report')
       return
     }

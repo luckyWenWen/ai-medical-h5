@@ -51,7 +51,10 @@ onMounted(async () => {
     return
   }
   if (!store.report) {
-    await store.buildReport()
+    const reportReady = await store.buildReport()
+    if (!reportReady) {
+      router.replace('/consultation')
+    }
   }
 })
 

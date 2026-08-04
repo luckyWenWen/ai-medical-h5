@@ -228,6 +228,9 @@ export const useConsultationStore = defineStore('consultation', {
     },
     hasUnansweredRequiredQuestions(): boolean {
       return this.firstUnansweredIndex >= 0
+    },
+    isSubmittedRecord: (state): boolean => {
+      return state.readOnly || Boolean(state.consultationNo) || state.recordStatus === 'SUBMITTED'
     }
   },
   actions: {
@@ -372,7 +375,7 @@ export const useConsultationStore = defineStore('consultation', {
       }
 
       this.report = null
-      this.isRevising = true
+      this.isRevising = false
       const lastAnsweredIndex = this.questions.reduce((lastIndex, question, index) => (
         Object.prototype.hasOwnProperty.call(this.answers, question.id) ? index : lastIndex
       ), -1)
@@ -381,7 +384,7 @@ export const useConsultationStore = defineStore('consultation', {
       this.persist()
       return true
     },
-    async saveVisitInfo(payload: VisitInfo) {
+    async saveVisitInfo(payload: VisitInfo, options?: { requireAuth?: boolean }) {
       const departmentChanged = this.visitInfo.departmentId !== payload.departmentId
       const wasSubmitted = this.readOnly || Boolean(this.consultationNo)
 
@@ -389,13 +392,13 @@ export const useConsultationStore = defineStore('consultation', {
       if (departmentChanged || wasSubmitted) {
         const savedProfile = { ...this.profile }
         const savedVisitInfo = { ...this.visitInfo }
-        await this.reset()
+        await this.reset(options)
         this.profile = savedProfile
         this.visitInfo = savedVisitInfo
       }
       this.persist()
     },
-    async saveProfile(payload: PatientProfile) {
+    async saveProfile(payload: PatientProfile, options?: { requireAuth?: boolean }) {
       const oldKey = this.patientKey
       const newKey = payload.name && payload.phone ? `${payload.name.trim()}_${payload.phone.trim()}` : ''
       const keyChanged = Boolean(oldKey) && Boolean(newKey) && oldKey !== newKey
@@ -406,7 +409,7 @@ export const useConsultationStore = defineStore('consultation', {
       if (keyChanged || isNewPatient || wasSubmitted) {
         const savedProfile = { ...this.profile }
         const savedVisitInfo = { ...this.visitInfo }
-        await this.reset()
+        await this.reset(options)
         this.profile = savedProfile
         this.visitInfo = savedVisitInfo
       }
@@ -473,6 +476,7 @@ export const useConsultationStore = defineStore('consultation', {
       })
 
       let synchronizedWithBackend = false
+      let saveErrorMessage = ''
       if (this.recordId) {
         try {
           const res = await saveAnswersApi(this.recordId, {
@@ -491,6 +495,7 @@ export const useConsultationStore = defineStore('consultation', {
           const responseData = error?.response?.data
           const code = responseData?.code || responseData?.data?.errorCode || error?.code
           const message = responseData?.message || responseData?.msg || error?.message || ''
+          saveErrorMessage = message || '回答保存失败，请稍后重试'
 
           console.warn('保存单题答案到后端接口失败:', error)
 
@@ -535,16 +540,13 @@ export const useConsultationStore = defineStore('consultation', {
       }
 
       if (!synchronizedWithBackend) {
+        if (this.recordId) {
+          showToast(saveErrorMessage || '回答保存失败，请稍后重试')
+          return
+        }
         this.currentIndex += 1
       }
-      if (this.isRevising) {
-        const nextUnanswered = this.firstUnansweredIndex
-        if (nextUnanswered >= 0 && nextUnanswered > this.currentIndex) {
-          this.currentIndex = nextUnanswered
-        } else if (this.currentIndex >= this.questions.length) {
-          this.currentIndex = this.questions.length - 1
-        }
-      }
+      this.isRevising = false
       this.ensureCurrentQuestionMessage()
       this.persist()
     },
@@ -560,7 +562,7 @@ export const useConsultationStore = defineStore('consultation', {
       if (index < 0) return
 
       this.currentIndex = index
-      this.isRevising = true
+      this.isRevising = false
       this.messages = this.messages.filter((message) => {
         if (!message.questionId) return true
         const messageIndex = this.questions.findIndex((item) => item.id === message.questionId)
@@ -611,24 +613,29 @@ export const useConsultationStore = defineStore('consultation', {
       this.materials = this.materials.filter((item) => item.id !== id)
       this.persist()
     },
-    async buildReport() {
+    async buildReport(): Promise<boolean> {
       if (this.recordId) {
         try {
           this.report = await getPreconsultResultApi(this.recordId)
           this.persist()
-          return
+          return true
         } catch (error: any) {
-          console.warn('拉取后端预问诊结果失败，尝试重建记录后重试:', error)
-          // 会话轮换导致记录不可用：重建记录并回放答案后再拉一次结果
-          try {
-            if (await this.resyncRecord()) {
-              this.report = await getPreconsultResultApi(this.recordId)
+          const status = error?.response?.status
+          const responseData = error?.response?.data
+          const message = responseData?.message || responseData?.msg || error?.message || ''
+
+          if (status === 404 || status === 409 || error?.code === 409) {
+            try {
+              await this.resyncRecord()
+              this.ensureCurrentQuestionMessage()
               this.persist()
-              return
+            } catch (retryErr) {
+              console.warn('重新同步问诊记录失败:', retryErr)
             }
-          } catch (retryErr) {
-            console.warn('重建记录后拉取结果仍失败，生成默认分析报告:', retryErr)
           }
+
+          showToast(message || '报告暂时无法生成，请继续完善问诊信息')
+          return false
         }
       }
       this.report = await createReport({
@@ -637,6 +644,7 @@ export const useConsultationStore = defineStore('consultation', {
         materialsCount: this.materials.length
       })
       this.persist()
+      return true
     },
     /** 提交预问诊；返回是否成功（已提交过视为成功）。失败时不再降级生成假编号。 */
     async submitReport(): Promise<boolean> {
@@ -677,13 +685,21 @@ export const useConsultationStore = defineStore('consultation', {
       this.persist()
       return true
     },
-    async reset() {
+    async reset(options?: { requireAuth?: boolean }): Promise<boolean> {
       Object.assign(this, defaultState())
       localStorage.removeItem(STORAGE_KEY)
       try {
-        await refreshAuthToken()
+        const token = await refreshAuthToken()
+        if (options?.requireAuth && !token) {
+          throw new Error('登录失败，请稍后重试')
+        }
+        return Boolean(token)
       } catch (e) {
+        if (options?.requireAuth) {
+          throw e
+        }
         console.warn('重置患者 Session 失败:', e)
+        return false
       }
     }
   }

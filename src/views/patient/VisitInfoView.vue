@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
+import { ensureAuthToken } from '@/api/request'
 import {
   getDepartmentList,
   getDoctorList,
@@ -28,6 +29,7 @@ const showDepartmentPicker = ref(false)
 const showDoctorPicker = ref(false)
 const loadingDepartments = ref(false)
 const loadingDoctors = ref(false)
+const submitting = ref(false)
 const departments = ref<DepartmentOption[]>([])
 const doctors = ref<DoctorOption[]>([])
 const departmentColumns = computed(() =>
@@ -116,7 +118,9 @@ function chooseDoctor({ selectedOptions }: { selectedOptions: PickerOption[] }) 
   showDoctorPicker.value = false
 }
 
-function next() {
+async function next() {
+  if (submitting.value) return
+
   if (!form.department) {
     showToast('请选择科室')
     return
@@ -127,8 +131,21 @@ function next() {
     return
   }
 
-  store.saveVisitInfo({ ...form })
-  router.push('/profile')
+  submitting.value = true
+  try {
+    const token = await ensureAuthToken()
+    if (!token) {
+      showToast('登录失败，请稍后重试')
+      return
+    }
+
+    await store.saveVisitInfo({ ...form }, { requireAuth: true })
+    router.push('/profile')
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')
+  } finally {
+    submitting.value = false
+  }
 }
 
 onMounted(() => {
@@ -173,7 +190,7 @@ onMounted(() => {
 
     <div class="fixed-action">
       <div class="fixed-action__inner">
-        <van-button type="primary" block @click="next">下一步</van-button>
+        <van-button type="primary" block :loading="submitting" :disabled="submitting" @click="next">下一步</van-button>
       </div>
     </div>
 

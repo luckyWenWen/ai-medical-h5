@@ -133,7 +133,8 @@ async function finishUpload() {
 
     await store.answerCurrent(attachmentIds.length ? attachmentIds : null)
     if (!store.currentQuestion) {
-      await store.buildReport()
+      const reportReady = await store.buildReport()
+      if (!reportReady) return
       await router.replace('/report')
       return
     }

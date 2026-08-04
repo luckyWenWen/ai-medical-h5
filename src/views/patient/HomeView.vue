@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { showToast } from 'vant'
+import { ensureAuthToken } from '@/api/request'
 import { useConsultationStore } from '@/stores/consultation'
 import stepOneImage from '@/assets/image/1.png'
 import stepTwoImage from '@/assets/image/2.png'
@@ -8,6 +11,8 @@ import hosiptalImg from '@/assets/image/5.png'
 
 const router = useRouter()
 const store = useConsultationStore()
+const startingNew = ref(false)
+const resuming = ref(false)
 const stepItems = [
   {
     image: stepOneImage,
@@ -31,8 +36,36 @@ const tabItems = [
 ]
 
 async function startNew() {
-  await store.reset()
-  router.push('/visit')
+  if (startingNew.value) return
+
+  startingNew.value = true
+  try {
+    await store.reset({ requireAuth: true })
+    router.push('/visit')
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')
+  } finally {
+    startingNew.value = false
+  }
+}
+
+async function resumeLast() {
+  if (resuming.value) return
+
+  resuming.value = true
+  try {
+    const token = await ensureAuthToken()
+    if (!token) {
+      showToast('登录失败，请稍后重试')
+      return
+    }
+
+    router.push('/consultation')
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')
+  } finally {
+    resuming.value = false
+  }
 }
 </script>
 
@@ -94,11 +127,20 @@ async function startNew() {
             class="start-button"
             type="primary"
             block
-            @click="router.push('/consultation')"
+            :loading="resuming"
+            :disabled="resuming"
+            @click="resumeLast"
           >
             继续上次问诊
           </van-button>
-          <van-button class="start-button" type="primary" block @click="startNew">
+          <van-button
+            class="start-button"
+            type="primary"
+            block
+            :loading="startingNew"
+            :disabled="startingNew"
+            @click="startNew"
+          >
             <span>开始预问诊</span>
             <van-icon name="arrow" />
           </van-button>

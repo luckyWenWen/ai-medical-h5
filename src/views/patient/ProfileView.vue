@@ -1,26 +1,43 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
+import { ensureAuthToken } from '@/api/request'
 import AppNavBar from '@/components/AppNavBar.vue'
 import { useConsultationStore } from '@/stores/consultation'
 import type { PatientProfile } from '@/types/consultation'
 
 const router = useRouter()
 const store = useConsultationStore()
+const submitting = ref(false)
 // 就诊卡号由患者自行填写（可选）。不能预置统一的 mock 值：
 // 卡号会随快照落库，所有人相同会导致医生端按卡号判重/匹配时张冠李戴
 const form = reactive<PatientProfile>({ ...store.profile })
 
 async function next() {
+  if (submitting.value) return
+
   if (!form.name || !form.gender || !form.age || !form.phone) {
     showToast('请完善姓名、性别、年龄和手机号')
     return
   }
 
-  await store.saveProfile({ ...form })
-  await store.loadQuestions()
-  router.push('/consultation')
+  submitting.value = true
+  try {
+    const token = await ensureAuthToken()
+    if (!token) {
+      showToast('登录失败，请稍后重试')
+      return
+    }
+
+    await store.saveProfile({ ...form }, { requireAuth: true })
+    await store.loadQuestions()
+    router.push('/consultation')
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -53,7 +70,7 @@ async function next() {
 
     <div class="fixed-action">
       <div class="fixed-action__inner">
-        <van-button type="primary" block @click="next">进入问诊</van-button>
+        <van-button type="primary" block :loading="submitting" :disabled="submitting" @click="next">进入问诊</van-button>
       </div>
     </div>
   </div>

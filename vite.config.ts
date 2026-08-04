@@ -9,11 +9,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   },
+  // http://47.113.122.118:9118/
   server: {
     port: 5183,
     proxy: {
       '/api': {
-        target: 'http://192.168.1.88:9120',
+        target: 'http://192.168.1.88:9120/',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }

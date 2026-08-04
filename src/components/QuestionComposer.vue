@@ -167,7 +167,11 @@ function submitUnknown() {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  max-height: min(42vh, 360px);
   margin-bottom: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
 }
 
 .option-tile {
