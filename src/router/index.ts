@@ -5,51 +5,73 @@ const router = createRouter({
   routes: [
     {
       path: '/',
+      redirect: '/login'
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/patient/LoginView.vue'),
+      meta: { title: '登录' }
+    },
+    {
+      path: '/home',
       name: 'home',
       component: () => import('@/views/patient/HomeView.vue'),
-      meta: { title: '智能预问诊' }
+      meta: { title: '智能预问诊', requiresAuth: true }
+    },
+    {
+      path: '/agreement/service',
+      name: 'service-agreement',
+      component: () => import('@/views/patient/AgreementView.vue'),
+      meta: { title: '服务协议' }
+    },
+    {
+      path: '/agreement/privacy',
+      name: 'privacy-agreement',
+      component: () => import('@/views/patient/AgreementView.vue'),
+      meta: { title: '隐私协议' }
     },
     {
       path: '/visit',
       name: 'visit',
       component: () => import('@/views/patient/VisitInfoView.vue'),
-      meta: { title: '就诊信息' }
+      meta: { title: '就诊信息', requiresAuth: true }
     },
     {
       path: '/profile',
       name: 'profile',
       component: () => import('@/views/patient/ProfileView.vue'),
-      meta: { title: '基本信息' }
+      meta: { title: '基本信息', requiresAuth: true }
     },
     {
       path: '/consultation',
       name: 'consultation',
       component: () => import('@/views/patient/ConsultationView.vue'),
-      meta: { title: '智能问诊' }
+      meta: { title: '智能问诊', requiresAuth: true }
     },
     {
       path: '/body',
       name: 'body',
       component: () => import('@/views/patient/BodySelectorView.vue'),
-      meta: { title: '部位选择' }
+      meta: { title: '部位选择', requiresAuth: true }
     },
     {
       path: '/upload',
       name: 'upload',
       component: () => import('@/views/patient/UploadView.vue'),
-      meta: { title: '上传资料' }
+      meta: { title: '上传资料', requiresAuth: true }
     },
     {
       path: '/report',
       name: 'report',
       component: () => import('@/views/patient/ReportView.vue'),
-      meta: { title: '报告确认' }
+      meta: { title: '报告确认', requiresAuth: true }
     },
     {
       path: '/success',
       name: 'success',
       component: () => import('@/views/patient/SuccessView.vue'),
-      meta: { title: '提交成功' }
+      meta: { title: '提交成功', requiresAuth: true }
     }
   ],
   scrollBehavior() {
@@ -68,6 +90,17 @@ router.beforeEach((to) => {
     }
   } else {
     extractAndSaveUrlToken()
+  }
+
+  if (to.name === 'login' && localStorage.getItem('patient_token') && !to.query.redirect) {
+    return { name: 'home' }
+  }
+
+  if (to.meta.requiresAuth && !localStorage.getItem('patient_token')) {
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath }
+    }
   }
 
   const store = useConsultationStore()

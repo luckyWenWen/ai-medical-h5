@@ -11,6 +11,19 @@ interface ApiEnvelope<T> {
 
 type RequestConfig = Omit<AxiosRequestConfig, 'url' | 'method'>
 
+function saveTokenFromResponse(body: ApiEnvelope<any> | any): string | null {
+  const token =
+    (body?.data && typeof body.data === 'object' && (body.data.token || body.data.Authorization)) ||
+    body?.token ||
+    body?.Authorization
+
+  if (!token) return null
+
+  const cleanToken = String(token).replace(/^Bearer\s+/i, '')
+  localStorage.setItem('patient_token', cleanToken)
+  return cleanToken
+}
+
 // 自动从当前 URL (query 或 hash) 提取 Token 存储到 localStorage
 export function extractAndSaveUrlToken(): string | null {
   try {
@@ -54,15 +67,8 @@ export async function ensureAuthToken(): Promise<string | null> {
         { timeout: 5000 }
       )
       const body = res.data
-      const newToken =
-        (body?.data && typeof body.data === 'object' && (body.data.token || body.data.Authorization)) ||
-        (body as any)?.token
-
-      if (newToken) {
-        const cleanToken = String(newToken).replace(/^Bearer\s+/i, '')
-        localStorage.setItem('patient_token', cleanToken)
-        return cleanToken
-      }
+      const newToken = saveTokenFromResponse(body)
+      if (newToken) return newToken
     } catch (e) {
       console.warn('自动登录获取 H5 患者端 Auth Token 失败:', e)
     } finally {
@@ -72,6 +78,30 @@ export async function ensureAuthToken(): Promise<string | null> {
   })()
 
   return autoLoginPromise
+}
+
+export async function sendSmsCode(phone: string): Promise<void> {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+  await axios.post(
+    `${baseUrl}/preconsult/client/auth/sms/send`,
+    { phone },
+    { timeout: 10000 }
+  )
+}
+
+export async function loginWithSms(phone: string, code: string): Promise<string | null> {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+  const res = await axios.post<ApiEnvelope<any>>(
+    `${baseUrl}/preconsult/client/auth/login`,
+    { phone, code, captcha: code },
+    { timeout: 10000, withCredentials: true }
+  )
+  const token = saveTokenFromResponse(res.data)
+  if (token) {
+    const csrfHeader = res.headers['x-csrf-token'] || res.headers['X-CSRF-Token']
+    if (csrfHeader) localStorage.setItem('csrf_token', String(csrfHeader))
+  }
+  return token
 }
 
 export async function refreshAuthToken(): Promise<string | null> {
