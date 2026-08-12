@@ -56,6 +56,12 @@ const router = createRouter({
       meta: { title: '投诉与反馈' }
     },
     {
+      path: '/my-records',
+      name: 'my-records',
+      component: () => import('@/views/patient/MyRecordsView.vue'),
+      meta: { title: '我的问诊记录', requiresAuth: true }
+    },
+    {
       path: '/consultation',
       name: 'consultation',
       component: () => import('@/views/patient/ConsultationView.vue'),

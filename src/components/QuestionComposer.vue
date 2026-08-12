@@ -60,6 +60,34 @@ const showAllowUnknown = computed(() => {
   return true
 })
 
+function isExclusiveOption(labelOrValue: string) {
+  const text = labelOrValue.trim()
+  return ['以上均无', '均无', '无', '没有', '否', '不清楚', '不确定'].some((keyword) => text === keyword || text.includes(keyword))
+}
+
+function isExclusiveValue(value: string) {
+  const option = props.question?.options?.find((item) => String(item.value) === String(value))
+  return isExclusiveOption(option?.label || value)
+}
+
+function handleMultiChange(values: unknown[]) {
+  const nextValues = values.map(String)
+  const previousValues = multiValue.value
+  const addedValue = nextValues.find((value) => !previousValues.includes(value))
+
+  if (addedValue && isExclusiveValue(addedValue)) {
+    multiValue.value = [addedValue]
+    return
+  }
+
+  if (addedValue) {
+    multiValue.value = nextValues.filter((value) => !isExclusiveValue(value))
+    return
+  }
+
+  multiValue.value = nextValues
+}
+
 function submit() {
   const question = props.question
 
@@ -97,7 +125,11 @@ function submitUnknown() {
     </template>
 
     <template v-else-if="question?.type === 'multi'">
-      <van-checkbox-group v-model="multiValue" class="option-grid">
+      <van-checkbox-group
+        :model-value="multiValue"
+        class="option-grid"
+        @update:model-value="handleMultiChange"
+      >
         <van-checkbox
           v-for="option in question.options"
           :key="option.value"

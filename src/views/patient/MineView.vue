@@ -63,11 +63,7 @@ function openProfile() {
 }
 
 function openRecords() {
-  if (store.report || store.consultationNo || store.isSubmittedRecord) {
-    router.push('/report')
-    return
-  }
-  showToast('暂无问诊记录')
+  router.push({ name: 'my-records' })
 }
 
 function logout() {

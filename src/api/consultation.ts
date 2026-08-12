@@ -70,6 +70,27 @@ export interface PreconsultAttachmentBackend {
   id?: string
 }
 
+export interface MyPreconsultRecordItem {
+  recordId: string
+  consultationNo?: string
+  recordVersion?: number
+  status?: string
+  departmentName?: string
+  doctorName?: string
+  visitType?: string
+  patientName?: string
+  patientPhone?: string
+  createdAt?: string
+  updatedAt?: string
+  submitTime?: string
+  chiefComplaint?: string
+  presentIllness?: string
+  riskLevel?: string
+  riskMessage?: string
+  readOnly?: boolean
+  [key: string]: any
+}
+
 const mockDepartments: DepartmentOption[] = [
   {
     label: '呼吸内科',
@@ -334,6 +355,20 @@ export async function getPreconsultResultApi(recordId: string): Promise<Consulta
       .filter(Boolean)
       .join('\n')
   }
+}
+
+export async function getMyPreconsultRecords(): Promise<MyPreconsultRecordItem[]> {
+  const res = await http.get<MyPreconsultRecordItem[] | { records?: MyPreconsultRecordItem[]; data?: MyPreconsultRecordItem[] }>(
+    '/preconsult/client/records/my-records'
+  )
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.records)) return res.records
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
+export async function getPreconsultRecordDetail(recordId: string): Promise<Record<string, any>> {
+  return http.get<Record<string, any>>(`/preconsult/client/records/${recordId}`)
 }
 
 export async function uploadAttachmentApi(

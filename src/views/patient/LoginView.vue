@@ -35,15 +35,12 @@ async function handleLogin() {
 <template>
   <div class="login-page" :style="{ backgroundImage: `url(${loginBg})` }">
     <main class="login-content">
-      <div class="login-brand" aria-hidden="true">
-        <van-icon name="like-o" />
-        <span class="login-brand__pulse"></span>
-      </div>
-
-      <h1>欢迎使用智能预问诊</h1>
-      <p class="login-subtitle">登录后享受便捷的智慧医疗服务</p>
-
       <div class="login-form">
+        <div class="login-title">
+          <h1>欢迎使用智能预问诊</h1>
+          <p class="login-subtitle">登录后享受便捷的智慧医疗服务</p>
+        </div>
+
         <div class="login-input mpb-10">
           <van-icon name="phone-o" />
           <input id="phone" v-model="phone" inputmode="text" maxlength="32" placeholder="请输入账号" />
@@ -99,37 +96,14 @@ async function handleLogin() {
   width: min(100%, 520px);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 48px 16px 22px;
+  padding: 360px 16px 22px;
 }
 
-.login-brand {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 72px;
-  height: 72px;
-  margin: 78px auto 22px;
-  overflow: hidden;
-  border-radius: 16px;
-  background: #eef5ff;
-  color: #2768ef;
+.login-title {
+  margin-bottom: 26px;
 }
 
-.login-brand .van-icon {
-  z-index: 1;
-  font-size: 36px;
-}
-
-.login-brand__pulse {
-  position: absolute;
-  width: 36px;
-  height: 9px;
-  border-top: 2px solid #2768ef;
-  border-radius: 50%;
-  transform: rotate(-12deg);
-}
-
-.login-content h1 {
+.login-title h1 {
   margin: 0;
   color: #202b3f;
   text-align: center;
@@ -139,7 +113,7 @@ async function handleLogin() {
 }
 
 .login-subtitle {
-  margin: 6px 0 38px;
+  margin: 6px 0 0;
   color: #a5afbe;
   text-align: center;
   font-size: 13px;
@@ -149,7 +123,7 @@ async function handleLogin() {
   border: 1px solid rgba(228, 234, 242, 0.72);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.9);
-  padding: 18px 14px 16px;
+  padding: 22px 14px 16px;
   box-shadow: 0 12px 28px rgba(31, 42, 61, 0.08);
   backdrop-filter: blur(10px);
 }
@@ -236,5 +210,17 @@ async function handleLogin() {
   color: #d0d6de;
   text-align: center;
   font-size: 11px;
+}
+
+@media (max-height: 720px) {
+  .login-content {
+    padding-top: 310px;
+  }
+}
+
+@media (max-height: 640px) {
+  .login-content {
+    padding-top: 260px;
+  }
 }
 </style>
