@@ -1,116 +1,57 @@
-<script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+﻿<script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { loginWithSms, sendSmsCode } from '@/api/request'
+import { loginWithSms } from '@/api/request'
+import loginBg from '@/assets/image/loginBg.png'
 
 const router = useRouter()
-const route = useRoute()
 const phone = ref('')
 const code = ref('')
 const agreed = ref(false)
-const sendingCode = ref(false)
 const loggingIn = ref(false)
-const countdown = ref(0)
-let countdownTimer: ReturnType<typeof setInterval> | undefined
-
-const canSendCode = computed(() => /^1\d{10}$/.test(phone.value) && countdown.value === 0)
 
 function openAgreement(type: 'service' | 'privacy') {
   router.push({ name: type === 'service' ? 'service-agreement' : 'privacy-agreement' })
 }
 
-async function handleSendCode() {
-  if (!/^1\d{10}$/.test(phone.value)) {
-    showToast('请输入正确的手机号')
-    return
-  }
-  if (sendingCode.value || countdown.value > 0) return
-
-  sendingCode.value = true
-  try {
-    await sendSmsCode(phone.value)
-    showToast('验证码已发送')
-    countdown.value = 60
-    countdownTimer = setInterval(() => {
-      countdown.value -= 1
-      if (countdown.value <= 0 && countdownTimer) {
-        clearInterval(countdownTimer)
-        countdownTimer = undefined
-      }
-    }, 1000)
-  } catch (error: any) {
-    showToast(error?.response?.data?.message || error?.response?.data?.msg || '验证码发送失败，请稍后重试')
-  } finally {
-    sendingCode.value = false
-  }
-}
-
 async function handleLogin() {
-  if (!/^1\d{10}$/.test(phone.value)) {
-    showToast('请输入正确的手机号')
-    return
-  }
-  if (!/^\d{4,6}$/.test(code.value)) {
-    showToast('请输入正确的验证码')
-    return
-  }
-  if (!agreed.value) {
-    showToast('请先阅读并同意服务协议和隐私协议')
-    return
-  }
+  if (loggingIn.value) return
 
+  localStorage.setItem('patient_phone', phone.value)
   loggingIn.value = true
+
   try {
-    const token = await loginWithSms(phone.value, code.value)
-    if (!token) {
-      showToast('登录失败，请检查验证码')
-      return
-    }
-    localStorage.setItem('patient_phone', phone.value)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
-    router.replace(redirect)
+    await loginWithSms(phone.value, code.value)
   } catch (error: any) {
-    showToast(error?.response?.data?.message || error?.response?.data?.msg || '登录失败，请稍后重试')
+    showToast(error?.response?.data?.message || error?.response?.data?.msg || '登录失败，已进入首页')
   } finally {
     loggingIn.value = false
+    await router.replace('/home')
   }
 }
 </script>
 
 <template>
-  <div class="login-page">
-    <!-- <van-nav-bar class="login-nav safe-top" title="登录" left-arrow @click-left="router.back()" /> -->
-
+  <div class="login-page" :style="{ backgroundImage: `url(${loginBg})` }">
     <main class="login-content">
       <div class="login-brand" aria-hidden="true">
         <van-icon name="like-o" />
         <span class="login-brand__pulse"></span>
       </div>
+
       <h1>欢迎使用智能预问诊</h1>
       <p class="login-subtitle">登录后享受便捷的智慧医疗服务</p>
 
       <div class="login-form">
         <div class="login-input mpb-10">
           <van-icon name="phone-o" />
-          <input id="phone" v-model="phone" inputmode="numeric" maxlength="11" placeholder="请输入手机号" />
+          <input id="phone" v-model="phone" inputmode="text" maxlength="32" placeholder="请输入账号" />
         </div>
 
-        <div class="login-code-row">
-          <div class="login-input">
-            <van-icon name="shield-o" />
-            <input id="code" v-model="code" inputmode="numeric" maxlength="6" placeholder="请输入验证码" />
-          </div>
-          <van-button
-            class="send-code"
-            type="primary"
-            plain
-            :loading="sendingCode"
-            :disabled="!canSendCode"
-            @click="handleSendCode"
-          >
-            {{ countdown > 0 ? `${countdown}s 后重发` : '获取验证码' }}
-          </van-button>
+        <div class="login-input mpb-10">
+          <van-icon name="shield-o" />
+          <input id="code" v-model="code" type="password" maxlength="32" placeholder="请输入密码" />
         </div>
 
         <div class="agreement-row">
@@ -129,46 +70,32 @@ async function handleLogin() {
         </van-button>
       </div>
 
-      <div class="other-login">
-        <div class="other-login__title"><span>其他方式登录</span></div>
-        <div class="other-login__options">
-          <button type="button" class="other-login__item" @click="showToast('微信登录即将开放')">
-            <span class="other-login__icon other-login__icon--wechat"><van-icon name="chat-o" /></span>
-            <span>微信</span>
-          </button>
-          <button type="button" class="other-login__item" @click="showToast('支付宝登录即将开放')">
-            <span class="other-login__icon other-login__icon--alipay"><van-icon name="smile-o" /></span>
-            <span>支付宝</span>
-          </button>
-        </div>
-      </div>
-
-      <p class="login-footnote">未注册手机号将自动创建账号</p>
+      <p class="login-footnote">当前登录失败也会先进入首页，后续可再调整鉴权逻辑</p>
     </main>
   </div>
 </template>
 
 <style scoped>
 .login-page {
-  min-height: 100vh;
-  background: #fff;
+  height: 100vh;
+  background-color: #fff;
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size: cover;
   color: #1f2a3d;
 }
 
-.login-nav {
-  --van-nav-bar-height: 39px;
-  box-shadow: none;
-}
-
-.login-nav :deep(.van-nav-bar__title) {
-  font-size: 15px;
-}
-
-.login-nav :deep(.van-icon) {
-  font-size: 20px;
+.login-page::before {
+  position: fixed;
+  inset: 0;
+  content: "";
+  /* background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.86) 58%, #fff 100%); */
+  pointer-events: none;
 }
 
 .login-content {
+  position: relative;
+  z-index: 1;
   width: min(100%, 520px);
   min-height: 100vh;
   margin: 0 auto;
@@ -219,15 +146,20 @@ async function handleLogin() {
 }
 
 .login-form {
-  padding: 0;
+  border: 1px solid rgba(228, 234, 242, 0.72);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 18px 14px 16px;
+  box-shadow: 0 12px 28px rgba(31, 42, 61, 0.08);
+  backdrop-filter: blur(10px);
 }
 
-.login-label {
-  display: block;
-  margin: 0 0 7px;
-  color: #506077;
-  font-size: 12px;
-  line-height: 1;
+.login-form .mpb-10:first-child {
+  margin-top: 0;
+}
+
+.login-form .login-button {
+  margin-top: 4px;
 }
 
 .login-input {
@@ -266,31 +198,6 @@ async function handleLogin() {
   color: #c7d0dd;
 }
 
-.login-code-row {
-  display: flex;
-  gap: 10px;
-}
-
-.login-code-row > .login-input {
-  flex: 1;
-}
-
-.send-code {
-  flex: 0 0 92px;
-  height: 46px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 10px;
-  background: #eef5ff;
-  color: #286bf0;
-  font-size: 12px;
-}
-
-.send-code:disabled {
-  color: #bdc9d8;
-  background: #f3f6fa;
-}
-
 .agreement-row {
   margin: 20px 0 28px;
   color: #9ca8b8;
@@ -322,63 +229,6 @@ async function handleLogin() {
   box-shadow: none;
   font-size: 16px;
   font-weight: 700;
-}
-
-.other-login {
-  margin-top: 38px;
-}
-
-.other-login__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #c1c9d4;
-  font-size: 12px;
-}
-
-.other-login__title::before,
-.other-login__title::after {
-  flex: 1;
-  height: 1px;
-  content: "";
-  background: #edf0f4;
-}
-
-.other-login__options {
-  display: flex;
-  justify-content: center;
-  gap: 35px;
-  margin-top: 22px;
-}
-
-.other-login__item {
-  display: grid;
-  justify-items: center;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #97a3b3;
-  font-size: 12px;
-}
-
-.other-login__icon {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  font-size: 20px;
-}
-
-.other-login__icon--wechat {
-  color: #20bd62;
-  background: #effbf3;
-}
-
-.other-login__icon--alipay {
-  color: #286bf0;
-  background: #f0f5ff;
 }
 
 .login-footnote {

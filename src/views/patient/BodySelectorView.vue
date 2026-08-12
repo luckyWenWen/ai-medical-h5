@@ -3,14 +3,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
+import BodyHumanMap from '@/components/BodyHumanMap.vue'
+import BodyPartGrid from '@/components/BodyPartGrid.vue'
 import { useConsultationStore } from '@/stores/consultation'
 
 const router = useRouter()
 const store = useConsultationStore()
+const activeTab = ref<'part' | 'symptom'>('part')
 const selectedCodes = ref<string[]>([])
 const submitting = ref(false)
 
 const question = computed(() => store.currentQuestion)
+console.log("8888",store.currentQuestion)
 const options = computed(() => question.value?.options || [])
 const maxSelections = computed(() => question.value?.maxSelections || 5)
 
@@ -62,48 +66,49 @@ async function confirm() {
 <template>
   <div class="page">
     <AppNavBar title="部位选择" back />
-    <main class="page-body body-selector">
-      <section class="surface body-selector__intro">
-        <span class="body-selector__eyebrow">不适定位</span>
-        <h1>{{ question?.title || '请选择不适部位' }}</h1>
-        <p>可选择多个部位，最多 {{ maxSelections }} 个。选择结果将用于后续专科问题，不代表诊断。</p>
-      </section>
+    <div class="body-tabs">
+      <button type="button" :class="{ active: activeTab === 'part' }" @click="activeTab = 'part'">
+        按部位选择
+      </button>
+      <button type="button" :class="{ active: activeTab === 'symptom' }" @click="activeTab = 'symptom'">
+        按症状选择
+      </button>
+    </div>
 
-      <section v-if="options.length" class="surface body-selector__panel">
-        <div class="body-selector__status">
-          <span>已选择 {{ selectedCodes.length }} 个</span>
-          <span>上限 {{ maxSelections }} 个</span>
-        </div>
-        <div class="body-selector__grid">
-          <button
-            v-for="(option, index) in options"
-            :key="option.value"
-            type="button"
-            class="body-selector__part"
-            :class="{ 'body-selector__part--active': selectedCodes.includes(option.value) }"
-            :aria-pressed="selectedCodes.includes(option.value)"
-            @click="toggle(option.value)"
-          >
-            <span class="body-selector__index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span>{{ option.label }}</span>
-            <van-icon
-              v-if="selectedCodes.includes(option.value)"
-              name="success"
-              class="body-selector__check"
-            />
-          </button>
-        </div>
-      </section>
+    <main class="body-selector" :class="`body-selector--${activeTab}`">
+      <BodyHumanMap
+        v-if="activeTab === 'part'"
+        :options="options"
+        :selected-codes="selectedCodes"
+        :max-selections="maxSelections"
+        @toggle="toggle"
+      />
 
-      <van-empty v-else description="当前问题未配置可选部位" />
+      <template v-else>
+        <section class="surface body-selector__intro">
+          <span class="body-selector__eyebrow">不适定位</span>
+          <h1>{{ question?.title || '请选择不适部位' }}</h1>
+          <p>可选择多个部位，最多 {{ maxSelections }} 个。选择结果将用于后续专科问题，不代表诊断。</p>
+        </section>
+
+        <BodyPartGrid
+          class="body-selector__grid-panel"
+          :options="options"
+          :selected-codes="selectedCodes"
+          :max-selections="maxSelections"
+          @toggle="toggle"
+        />
+      </template>
     </main>
 
     <div class="fixed-action body-selector-action">
       <div class="fixed-action__inner action-row">
-        <van-button plain type="primary" :loading="submitting" @click="continueFlow(null)">
-          不清楚
+        <van-button plain type="primary" :disabled="submitting" @click="router.back()">
+          返回
         </van-button>
-        <van-button type="primary" :loading="submitting" @click="confirm">确定</van-button>
+        <van-button type="primary" :loading="submitting" @click="confirm">
+          确定（{{ selectedCodes.length }}）
+        </van-button>
       </div>
     </div>
   </div>
@@ -111,7 +116,49 @@ async function confirm() {
 
 <style scoped>
 .body-selector {
-  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  width: min(100%, 520px);
+  margin: 0 auto;
+  padding: 12px 8px calc(92px + env(safe-area-inset-bottom));
+}
+
+.body-selector--part {
+  padding-top: 0;
+}
+
+.body-tabs {
+  position: sticky;
+  top: calc(50px + env(safe-area-inset-top));
+  z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 520px);
+  height: 44px;
+  margin: 0 auto;
+  border-bottom: 1px solid #eef2f6;
+  background: #fff;
+}
+
+.body-tabs button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: #8a96a8;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.body-tabs button.active {
+  color: #111827;
+}
+
+.body-tabs button.active::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  content: "";
+  background: #111827;
 }
 
 .body-selector__intro {
@@ -141,59 +188,13 @@ async function confirm() {
 
 .body-selector__intro p {
   margin: 10px 0 0;
-  color: var(--theme-text-secondary);
+  color: var(--theme-text-muted);
   font-size: 13px;
   line-height: 1.6;
 }
 
-.body-selector__panel {
+.body-selector__grid-panel {
   margin-top: 12px;
-  padding: 14px;
-}
-
-.body-selector__status {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  color: var(--theme-text-secondary);
-  font-size: 12px;
-}
-
-.body-selector__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
-}
-
-.body-selector__part {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  min-height: 52px;
-  border: 1px solid var(--theme-border);
-  border-radius: var(--theme-radius);
-  background: var(--theme-surface);
-  padding: 9px 10px;
-  color: var(--theme-text);
-  text-align: left;
-}
-
-.body-selector__part--active {
-  border-color: var(--theme-primary);
-  background: var(--theme-primary-soft);
-  color: var(--theme-primary);
-}
-
-.body-selector__index {
-  margin-right: 8px;
-  color: var(--theme-text-secondary);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.body-selector__check {
-  margin-left: 6px;
-  color: var(--theme-primary);
 }
 
 .action-row {

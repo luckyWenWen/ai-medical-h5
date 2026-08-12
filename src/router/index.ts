@@ -17,7 +17,7 @@ const router = createRouter({
       path: '/home',
       name: 'home',
       component: () => import('@/views/patient/HomeView.vue'),
-      meta: { title: '智能预问诊', requiresAuth: true }
+      meta: { title: '智能预问诊' }
     },
     {
       path: '/agreement/service',
@@ -41,7 +41,19 @@ const router = createRouter({
       path: '/profile',
       name: 'profile',
       component: () => import('@/views/patient/ProfileView.vue'),
-      meta: { title: '基本信息', requiresAuth: true }
+      meta: { title: '基本信息' }
+    },
+    {
+      path: '/mine',
+      name: 'mine',
+      component: () => import('@/views/patient/MineView.vue'),
+      meta: { title: '我的' }
+    },
+    {
+      path: '/complaintFeedback',
+      name: 'complaintFeedback',
+      component: () => import('@/views/patient/ComplaintFeedbackView.vue'),
+      meta: { title: '投诉与反馈' }
     },
     {
       path: '/consultation',

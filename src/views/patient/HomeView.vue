@@ -67,6 +67,10 @@ async function resumeLast() {
     resuming.value = false
   }
 }
+
+function goProfile() {
+  router.push('/mine')
+}
 </script>
 
 <template>
@@ -77,8 +81,9 @@ async function resumeLast() {
           <!-- <van-icon name="plus" /> -->
           <span>智能预问诊</span>
         </div>
-        <!-- <van-icon name="manager-o" /> -->
-         <van-icon  name="question-o" size="18" />
+        <button type="button" class="hero-nav__profile" aria-label="我的" @click="goProfile">
+          <van-icon name="user-o" size="18" />
+        </button>
       </nav>
 
       <section class="brand">
@@ -200,8 +205,7 @@ async function resumeLast() {
   font-weight: 800;
 }
 
-.hero-nav__brand .van-icon,
-.hero-nav > .van-icon {
+.hero-nav__brand .van-icon {
   font-size: 18px;
 }
 
@@ -209,6 +213,22 @@ async function resumeLast() {
   padding: 2px;
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 4px;
+}
+
+.hero-nav__profile {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--theme-on-primary);
+}
+
+.hero-nav__profile .van-icon {
+  font-size: 18px;
 }
 
 .home {

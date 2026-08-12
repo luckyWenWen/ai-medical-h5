@@ -12,10 +12,42 @@ interface ApiEnvelope<T> {
 type RequestConfig = Omit<AxiosRequestConfig, 'url' | 'method'>
 
 function saveTokenFromResponse(body: ApiEnvelope<any> | any): string | null {
+  const data = body?.data
   const token =
-    (body?.data && typeof body.data === 'object' && (body.data.token || body.data.Authorization)) ||
+    (typeof data === 'string' && data) ||
+    (data && typeof data === 'object' &&
+      (data.token ||
+        data.accessToken ||
+        data.access_token ||
+        data.tokenValue ||
+        data.tokenStr ||
+        data.Authorization ||
+        data.authorization)) ||
     body?.token ||
-    body?.Authorization
+    body?.accessToken ||
+    body?.access_token ||
+    body?.tokenValue ||
+    body?.tokenStr ||
+    body?.Authorization ||
+    body?.authorization
+
+  if (!token) return null
+
+  const cleanToken = String(token).replace(/^Bearer\s+/i, '')
+  localStorage.setItem('patient_token', cleanToken)
+  return cleanToken
+}
+
+function saveTokenFromHeaders(headers: Record<string, unknown> | undefined): string | null {
+  if (!headers) return null
+
+  const token =
+    headers.authorization ||
+    headers.Authorization ||
+    headers['x-auth-token'] ||
+    headers['X-Auth-Token'] ||
+    headers['x-token'] ||
+    headers['X-Token']
 
   if (!token) return null
 
@@ -67,7 +99,9 @@ export async function ensureAuthToken(): Promise<string | null> {
         { timeout: 5000 }
       )
       const body = res.data
-      const newToken = saveTokenFromResponse(body)
+      const newToken =
+        saveTokenFromResponse(body) ||
+        saveTokenFromHeaders(res.headers as Record<string, unknown>)
       if (newToken) return newToken
     } catch (e) {
       console.warn('自动登录获取 H5 患者端 Auth Token 失败:', e)
@@ -96,11 +130,13 @@ export async function loginWithSms(phone: string, code: string): Promise<string 
     { phone, code, captcha: code },
     { timeout: 10000, withCredentials: true }
   )
-  const token = saveTokenFromResponse(res.data)
-  if (token) {
-    const csrfHeader = res.headers['x-csrf-token'] || res.headers['X-CSRF-Token']
-    if (csrfHeader) localStorage.setItem('csrf_token', String(csrfHeader))
-  }
+  const token =
+    saveTokenFromResponse(res.data) ||
+    saveTokenFromHeaders(res.headers as Record<string, unknown>)
+
+  const csrfHeader = res.headers['x-csrf-token'] || res.headers['X-CSRF-Token']
+  if (csrfHeader) localStorage.setItem('csrf_token', String(csrfHeader))
+
   return token
 }
 
