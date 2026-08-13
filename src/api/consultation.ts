@@ -91,6 +91,39 @@ export interface MyPreconsultRecordItem {
   [key: string]: any
 }
 
+export type PreconsultFeedbackCategory = 'COMPLAINT' | 'SUGGESTION' | 'OTHER'
+
+export interface PreconsultFeedbackPayload {
+  title: string
+  category: PreconsultFeedbackCategory
+  content: string
+  attachmentUrls?: string
+  phone?: string
+  patientName?: string
+}
+
+export interface PreconsultFeedbackItem {
+  id?: string | number
+  feedbackId?: string | number
+  feedbackNo?: string
+  title?: string
+  category?: PreconsultFeedbackCategory | string
+  content?: string
+  attachmentUrls?: string
+  phone?: string
+  patientName?: string
+  status?: string
+  statusText?: string
+  statusName?: string
+  replyContent?: string
+  replyTime?: string
+  createdAt?: string
+  createTime?: string
+  updatedAt?: string
+  updateTime?: string
+  [key: string]: any
+}
+
 const mockDepartments: DepartmentOption[] = [
   {
     label: '呼吸内科',
@@ -369,6 +402,29 @@ export async function getMyPreconsultRecords(): Promise<MyPreconsultRecordItem[]
 
 export async function getPreconsultRecordDetail(recordId: string): Promise<Record<string, any>> {
   return http.get<Record<string, any>>(`/preconsult/client/records/${recordId}`)
+}
+
+export async function submitPreconsultFeedback(
+  payload: PreconsultFeedbackPayload
+): Promise<PreconsultFeedbackItem | null> {
+  return http.post<PreconsultFeedbackItem | null>('/preconsult/client/feedback', payload)
+}
+
+export async function getMyPreconsultFeedbackList(): Promise<PreconsultFeedbackItem[]> {
+  const res = await http.get<
+    PreconsultFeedbackItem[] | {
+      records?: PreconsultFeedbackItem[]
+      list?: PreconsultFeedbackItem[]
+      rows?: PreconsultFeedbackItem[]
+      data?: PreconsultFeedbackItem[]
+    }
+  >('/preconsult/client/feedback/my-list')
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.records)) return res.records
+  if (Array.isArray(res?.list)) return res.list
+  if (Array.isArray(res?.rows)) return res.rows
+  if (Array.isArray(res?.data)) return res.data
+  return []
 }
 
 export async function uploadAttachmentApi(

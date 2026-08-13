@@ -9,8 +9,8 @@ const store = useConsultationStore()
 
 const appVersion = 'v2.1.0'
 
-const userName = computed(() => store.profile.name || '张先生')
-const userPhone = computed(() => store.profile.phone || localStorage.getItem('patient_phone') || '138****5678')
+const userName = computed(() => store.profile.name || store.patientAuth?.patientName || store.patientAuth?.username || '未填写姓名')
+const userPhone = computed(() => store.profile.phone || store.patientAuth?.phone || store.patientAuth?.username || '')
 const maskedPhone = computed(() => maskPhone(userPhone.value))
 
 const settingItems = [
@@ -67,11 +67,7 @@ function openRecords() {
 }
 
 function logout() {
-  localStorage.removeItem('patient_token')
-  localStorage.removeItem('csrf_token')
-  localStorage.removeItem('patient_phone')
-  store.$reset()
-  store.persist()
+  store.clearPatientAuth()
   router.replace('/login')
 }
 </script>

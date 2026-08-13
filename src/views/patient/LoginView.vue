@@ -1,33 +1,57 @@
 ﻿<script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { loginWithSms } from '@/api/request'
+import { loginWithPassword } from '@/api/request'
+import { useConsultationStore } from '@/stores/consultation'
 import loginBg from '@/assets/image/loginBg.png'
 
+const route = useRoute()
 const router = useRouter()
-const phone = ref('')
-const code = ref('')
+const store = useConsultationStore()
+const username = ref('')
+const password = ref('')
 const agreed = ref(false)
 const loggingIn = ref(false)
 
 function openAgreement(type: 'service' | 'privacy') {
-  router.push({ name: type === 'service' ? 'service-agreement' : 'privacy-agreement' })
+  router.push({
+    name: type === 'service' ? 'service-agreement' : 'privacy-agreement',
+    query: { from: 'login' }
+  })
 }
 
 async function handleLogin() {
   if (loggingIn.value) return
+  if (!username.value.trim()) {
+    showToast('请输入账号')
+    return
+  }
+  if (!password.value) {
+    showToast('请输入密码')
+    return
+  }
+  if (!agreed.value) {
+    showToast('请先阅读并同意服务协议和隐私协议')
+    return
+  }
 
-  localStorage.setItem('patient_phone', phone.value)
   loggingIn.value = true
 
   try {
-    await loginWithSms(phone.value, code.value)
+    const auth = await loginWithPassword(username.value.trim(), password.value)
+    if (!auth.token) {
+      showToast('登录接口未返回 Token')
+      return
+    }
+    store.setPatientAuth(auth)
+    await store.loadCurrentPatientAuth()
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
+    await router.replace(redirect)
   } catch (error: any) {
-    showToast(error?.response?.data?.message || error?.response?.data?.msg || '登录失败，已进入首页')
+    showToast(error?.response?.data?.message || error?.response?.data?.msg || error?.message || '登录失败')
   } finally {
     loggingIn.value = false
-    await router.replace('/home')
   }
 }
 </script>
@@ -43,12 +67,12 @@ async function handleLogin() {
 
         <div class="login-input mpb-10">
           <van-icon name="phone-o" />
-          <input id="phone" v-model="phone" inputmode="text" maxlength="32" placeholder="请输入账号" />
+          <input id="username" v-model="username" inputmode="text" maxlength="32" placeholder="请输入账号" />
         </div>
 
         <div class="login-input mpb-10">
           <van-icon name="shield-o" />
-          <input id="code" v-model="code" type="password" maxlength="32" placeholder="请输入密码" />
+          <input id="password" v-model="password" type="password" maxlength="32" placeholder="请输入密码" />
         </div>
 
         <div class="agreement-row">
@@ -66,8 +90,6 @@ async function handleLogin() {
           登录
         </van-button>
       </div>
-
-      <p class="login-footnote">当前登录失败也会先进入首页，后续可再调整鉴权逻辑</p>
     </main>
   </div>
 </template>
@@ -203,13 +225,6 @@ async function handleLogin() {
   box-shadow: none;
   font-size: 16px;
   font-weight: 700;
-}
-
-.login-footnote {
-  margin: 34px 0 0;
-  color: #d0d6de;
-  text-align: center;
-  font-size: 11px;
 }
 
 @media (max-height: 720px) {

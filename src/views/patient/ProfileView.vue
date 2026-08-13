@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { ensureAuthToken } from '@/api/request'
 import AppNavBar from '@/components/AppNavBar.vue'
 import { useConsultationStore } from '@/stores/consultation'
 import type { PatientProfile } from '@/types/consultation'
@@ -10,9 +9,26 @@ import type { PatientProfile } from '@/types/consultation'
 const router = useRouter()
 const store = useConsultationStore()
 const submitting = ref(false)
-// 就诊卡号由患者自行填写（可选）。不能预置统一的 mock 值：
-// 卡号会随快照落库，所有人相同会导致医生端按卡号判重/匹配时张冠李戴
-const form = reactive<PatientProfile>({ ...store.profile })
+const form = reactive<PatientProfile>({
+  ...store.profile,
+  cardNo: store.profile.cardNo || createCardNo()
+})
+
+function syncFormFromStore() {
+  Object.assign(form, {
+    ...store.profile,
+    cardNo: store.profile.cardNo || form.cardNo || createCardNo()
+  })
+}
+
+function createCardNo() {
+  const seed = store.patientAuth?.patientId || store.patientAuth?.username || Date.now()
+  let hash = 0
+  for (const char of String(seed)) {
+    hash = (hash * 31 + char.charCodeAt(0)) % 100000000
+  }
+  return `JZK${String(hash).padStart(8, '0')}`
+}
 
 async function next() {
   if (submitting.value) return
@@ -24,13 +40,12 @@ async function next() {
 
   submitting.value = true
   try {
-    const token = await ensureAuthToken()
-    if (!token) {
-      showToast('登录失败，请稍后重试')
+    if (!store.isLoggedIn) {
+      router.push({ name: 'login', query: { redirect: '/profile' } })
       return
     }
 
-    await store.saveProfile({ ...form }, { requireAuth: true })
+    await store.saveProfile({ ...form })
     await store.loadQuestions()
     router.push('/consultation')
   } catch (error) {
@@ -39,6 +54,17 @@ async function next() {
     submitting.value = false
   }
 }
+
+onMounted(async () => {
+  if (!store.isLoggedIn) return
+
+  try {
+    await store.loadCurrentPatientProfile()
+    syncFormFromStore()
+  } catch (error) {
+    console.warn('刷新个人资料失败:', error)
+  }
+})
 </script>
 
 <template>
@@ -64,7 +90,7 @@ async function next() {
         />
         <van-field v-model="form.phone" type="tel" label="手机号" placeholder="请输入手机号" />
         <van-field v-model="form.idCard" label="身份证号" placeholder="可选" />
-        <van-field v-model="form.cardNo" label="就诊卡号" placeholder="可选" />
+        <van-field v-model="form.cardNo" label="就诊卡号" readonly />
       </van-form>
     </main>
 

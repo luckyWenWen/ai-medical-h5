@@ -41,7 +41,7 @@ const router = createRouter({
       path: '/profile',
       name: 'profile',
       component: () => import('@/views/patient/ProfileView.vue'),
-      meta: { title: '基本信息' }
+      meta: { title: '基本信息', requiresAuth: true }
     },
     {
       path: '/mine',
@@ -100,7 +100,7 @@ const router = createRouter({
 import { extractAndSaveUrlToken } from '@/api/request'
 import { useConsultationStore } from '@/stores/consultation'
 
-router.beforeEach((to) => {
+router.beforeEach(async (to, from) => {
   if (to.query.token || to.query.satoken || to.query.ticket) {
     const rawToken = String(to.query.token || to.query.satoken || to.query.ticket)
     if (rawToken) {
@@ -110,20 +110,33 @@ router.beforeEach((to) => {
     extractAndSaveUrlToken()
   }
 
-  if (to.name === 'login' && localStorage.getItem('patient_token') && !to.query.redirect) {
+  const isBackFromLoginAgreement =
+    (from.name === 'service-agreement' || from.name === 'privacy-agreement') &&
+    from.query.from === 'login'
+
+  if (
+    to.name === 'login' &&
+    localStorage.getItem('patient_token') &&
+    !to.query.redirect &&
+    !isBackFromLoginAgreement
+  ) {
     return { name: 'home' }
   }
 
+  const store = useConsultationStore()
   if (to.meta.requiresAuth && !localStorage.getItem('patient_token')) {
     return {
       name: 'login',
       query: { redirect: to.fullPath }
     }
   }
+  if (to.meta.requiresAuth && localStorage.getItem('patient_token') && !store.patientAuth) {
+    await store.loadCurrentPatientAuth()
+  }
 
-  const store = useConsultationStore()
   if (to.name === 'consultation') {
-    if (!store.visitInfo.department || !store.profile.name || !store.profile.phone) {
+    const hasRestoredRecord = Boolean(store.recordId && store.questions.length)
+    if (!hasRestoredRecord && (!store.visitInfo.department || !store.profile.name || !store.profile.phone)) {
       return { name: 'visit' }
     }
     if (store.isSubmittedRecord) {

@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { ensureAuthToken } from '@/api/request'
 import {
   getDepartmentList,
   getDoctorList,
@@ -150,13 +149,12 @@ async function next() {
 
   submitting.value = true
   try {
-    const token = await ensureAuthToken()
-    if (!token) {
-      showToast('登录失败，请稍后重试')
+    if (!store.isLoggedIn) {
+      router.push({ name: 'login', query: { redirect: '/visit' } })
       return
     }
 
-    await store.saveVisitInfo({ ...form }, { requireAuth: true })
+    await store.saveVisitInfo({ ...form })
     router.push('/profile')
   } catch (error) {
     showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')

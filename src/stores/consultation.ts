@@ -10,7 +10,13 @@ import {
   submitPreconsultApi
 } from '@/api/consultation'
 import type { PreconsultRecordViewBackend } from '@/api/consultation'
-import { refreshAuthToken } from '@/api/request'
+import {
+  getCurrentPatientProfile,
+  getCurrentPatientTokenInfo,
+  updateCurrentPatientProfile,
+  type PatientProfileInfo,
+  type PatientAuthInfo
+} from '@/api/request'
 import type {
   AnswerValue,
   ChatMessage,
@@ -24,6 +30,7 @@ import type {
 const STORAGE_KEY = 'patient_consultation_state'
 
 interface ConsultationState {
+  patientAuth: PatientAuthInfo | null
   recordId: string
   recordVersion: number
   recordStatus: string
@@ -41,6 +48,7 @@ interface ConsultationState {
 }
 
 const defaultState = (): ConsultationState => ({
+  patientAuth: null,
   recordId: '',
   recordVersion: 0,
   recordStatus: '',
@@ -72,7 +80,62 @@ const defaultState = (): ConsultationState => ({
 })
 
 function readState(): Partial<ConsultationState> {
-  return {}
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch (error) {
+    console.warn('读取患者本地缓存失败:', error)
+    return {}
+  }
+}
+
+function looksLikePhone(value?: string | null): boolean {
+  return /^1\d{10}$/.test(String(value || ''))
+}
+
+function normalizeGender(value?: string | null): PatientProfile['gender'] {
+  const upper = String(value || '').toUpperCase()
+  if (upper === 'M' || upper === 'MALE' || upper === '男') return 'male'
+  if (upper === 'F' || upper === 'FEMALE' || upper === '女') return 'female'
+  return ''
+}
+
+function toBackendGender(value: PatientProfile['gender']): string | undefined {
+  if (value === 'male') return 'M'
+  if (value === 'female') return 'F'
+  return undefined
+}
+
+function hasProfileField(profile: PatientProfileInfo, key: keyof PatientProfileInfo): boolean {
+  return Object.prototype.hasOwnProperty.call(profile, key)
+}
+
+function getProfileString(profile: PatientProfileInfo, key: keyof PatientProfileInfo, fallback: string): string {
+  return hasProfileField(profile, key) ? String(profile[key] ?? '') : fallback
+}
+
+function createDefaultCardNo(auth?: PatientAuthInfo | null): string {
+  const seed = String(auth?.patientId || auth?.username || Date.now())
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) % 100000000
+  }
+  return `JZK${String(hash).padStart(8, '0')}`
+}
+
+function getFirstValue(source: Record<string, any>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = key.split('.').reduce<any>((obj, field) => obj?.[field], source)
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return ''
+}
+
+function normalizeVisitType(value: unknown): VisitInfo['visitType'] {
+  const upper = String(value || '').toUpperCase()
+  return upper === 'RETURN' || upper === 'FOLLOW_UP' || upper === 'REVISIT' ? 'return' : 'first'
 }
 
 function mapEnumValueToLabel(val: string): string {
@@ -207,6 +270,9 @@ export const useConsultationStore = defineStore('consultation', {
       return Math.min(100, Math.round((answeredCount / state.questions.length) * 100))
     },
     canResume: (state) => state.messages.length > 0 && state.currentIndex < state.questions.length,
+    isLoggedIn: (state): boolean => {
+      return Boolean(state.patientAuth?.token || localStorage.getItem('patient_token'))
+    },
     patientKey: (state): string => {
       const dept = state.visitInfo.departmentId || ''
       const name = (state.profile.name || '').trim()
@@ -235,7 +301,109 @@ export const useConsultationStore = defineStore('consultation', {
   },
   actions: {
     persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.$state))
+    },
+    setPatientAuth(auth: PatientAuthInfo) {
+      const token = auth.token || this.patientAuth?.token || localStorage.getItem('patient_token') || ''
+      if (token) {
+        localStorage.setItem('patient_token', token.replace(/^Bearer\s+/i, ''))
+      }
+      if (auth.username) {
+        localStorage.setItem('patient_username', String(auth.username))
+      }
+
+      const mergedAuth = {
+        ...(this.patientAuth || {}),
+        ...auth,
+        token: token || auth.token
+      }
+      this.patientAuth = mergedAuth
+
+      this.profile = {
+        ...this.profile,
+        name: String(auth.patientName || this.profile.name || auth.username || ''),
+        gender: normalizeGender(auth.gender) || this.profile.gender,
+        age: typeof auth.age === 'number' ? auth.age : this.profile.age,
+        phone: String(auth.phone || (looksLikePhone(auth.username) ? auth.username : '') || this.profile.phone || ''),
+        idCard: String(auth.idCard || this.profile.idCard || ''),
+        cardNo: this.profile.cardNo || createDefaultCardNo(mergedAuth)
+      }
+      this.persist()
+    },
+    setPatientProfile(profile: PatientProfileInfo) {
+      const patientName = getProfileString(profile, 'patientName', this.profile.name)
+      const username = getProfileString(profile, 'username', String(this.patientAuth?.username || ''))
+      const phoneFallback = looksLikePhone(username) ? username : this.profile.phone
+      const phone = getProfileString(profile, 'phone', phoneFallback) || phoneFallback
+      const idCard = getProfileString(profile, 'idCard', this.profile.idCard)
+      const gender = hasProfileField(profile, 'gender')
+        ? normalizeGender(profile.gender)
+        : this.profile.gender
+      const age = hasProfileField(profile, 'age')
+        ? (typeof profile.age === 'number' ? profile.age : null)
+        : this.profile.age
+
+      this.patientAuth = {
+        ...(this.patientAuth || {}),
+        patientId: getProfileString(profile, 'patientId', String(this.patientAuth?.patientId || '')),
+        username,
+        patientName,
+        phone,
+        idCard,
+        gender: profile.gender || this.patientAuth?.gender,
+        age,
+        token: this.patientAuth?.token || localStorage.getItem('patient_token') || undefined
+      }
+
+      this.profile = {
+        ...this.profile,
+        name: patientName,
+        gender,
+        age,
+        phone,
+        idCard,
+        cardNo: this.profile.cardNo || createDefaultCardNo(this.patientAuth)
+      }
+      this.persist()
+    },
+    async loadCurrentPatientProfile(): Promise<boolean> {
+      const token = localStorage.getItem('patient_token')
+      if (!token) return false
+
+      const profile = await getCurrentPatientProfile()
+      this.setPatientProfile(profile)
+      return true
+    },
+    async loadCurrentPatientAuth(): Promise<boolean> {
+      const token = localStorage.getItem('patient_token')
+      if (!token) return false
+
+      try {
+        const auth = await getCurrentPatientTokenInfo()
+        this.setPatientAuth({
+          ...(this.patientAuth || {}),
+          ...auth,
+          token: auth.token || token
+        })
+        try {
+          const profile = await getCurrentPatientProfile()
+          this.setPatientProfile(profile)
+        } catch (profileError) {
+          console.warn('鑾峰彇褰撳墠鎮ｈ€呬釜浜鸿祫鏂欏け璐?', profileError)
+        }
+        return true
+      } catch (error) {
+        console.warn('获取当前患者 Token 信息失败:', error)
+        return Boolean(this.patientAuth?.patientId || this.patientAuth?.username)
+      }
+    },
+    clearPatientAuth() {
+      localStorage.removeItem('patient_token')
+      localStorage.removeItem('csrf_token')
+      localStorage.removeItem('patient_username')
       localStorage.removeItem(STORAGE_KEY)
+      Object.assign(this, defaultState())
+      this.persist()
     },
     syncRecordView(record: PreconsultRecordViewBackend): boolean {
       this.recordId = String(record.recordId || this.recordId)
@@ -287,6 +455,58 @@ export const useConsultationStore = defineStore('consultation', {
       const nextIndex = this.questions.findIndex((question) => question.id === nextQuestionId)
       this.currentIndex = nextIndex >= 0 ? nextIndex : this.questions.length
       return true
+    },
+    resumeRecordView(record: PreconsultRecordViewBackend & Record<string, any>) {
+      this.recordId = String(record.recordId || this.recordId)
+      this.recordVersion = typeof record.recordVersion === 'number' ? record.recordVersion : this.recordVersion
+      this.recordStatus = String(record.status || this.recordStatus || '')
+      this.readOnly = Boolean(record.readOnly) || this.recordStatus === 'SUBMITTED'
+      this.consultationNo = String(record.consultationNo || this.consultationNo || '')
+
+      const departmentName = getFirstValue(
+        record,
+        'departmentName',
+        'department',
+        'deptName',
+        'template.departmentName',
+        'template.name'
+      )
+      const departmentId = getFirstValue(record, 'departmentId', 'deptId', 'template.departmentId')
+      this.visitInfo = {
+        ...this.visitInfo,
+        visitType: normalizeVisitType(getFirstValue(record, 'visitType')),
+        department: String(departmentName || this.visitInfo.department || '历史问诊'),
+        departmentId: String(departmentId || this.visitInfo.departmentId || ''),
+        doctor: String(getFirstValue(record, 'doctorName', 'doctor') || this.visitInfo.doctor || ''),
+        appointmentNo: String(getFirstValue(record, 'appointmentNo', 'registrationNo') || this.visitInfo.appointmentNo || ''),
+        visitTime: String(getFirstValue(record, 'visitTime', 'createdAt', 'createTime') || this.visitInfo.visitTime || '')
+      }
+
+      const patientSnapshot = record.patientSnapshot || {}
+      this.profile = {
+        ...this.profile,
+        name: String(getFirstValue(record, 'patientName', 'name', 'patientSnapshot.name') || this.profile.name),
+        gender: normalizeGender(getFirstValue(record, 'gender', 'patientGender', 'patientSnapshot.gender')) || this.profile.gender,
+        age: Number(getFirstValue(record, 'age', 'patientAge', 'patientSnapshot.age')) || this.profile.age,
+        phone: String(getFirstValue(record, 'patientPhone', 'phone', 'patientSnapshot.phone') || this.profile.phone),
+        idCard: String(getFirstValue(record, 'idCard', 'patientIdCard', 'patientSnapshot.idCard') || this.profile.idCard),
+        cardNo: String(getFirstValue(record, 'cardNo', 'patientSnapshot.cardNo') || this.profile.cardNo || createDefaultCardNo(this.patientAuth))
+      }
+      if (patientSnapshot && typeof patientSnapshot === 'object' && !this.profile.name) {
+        this.profile.name = String(patientSnapshot.name || '')
+      }
+
+      this.syncRecordView(record)
+      if (!this.readOnly && this.currentIndex >= this.questions.length) {
+        const fallbackIndex =
+          this.questions.findIndex((question) => !Object.prototype.hasOwnProperty.call(this.answers, question.id))
+        this.currentIndex = fallbackIndex >= 0 ? fallbackIndex : this.questions.length
+      }
+      this.rebuildMessagesFromAnswers()
+      if (!this.readOnly) {
+        this.ensureCurrentQuestionMessage()
+      }
+      this.persist()
     },
     ensureCurrentQuestionMessage() {
       const question = this.currentQuestion
@@ -404,8 +624,23 @@ export const useConsultationStore = defineStore('consultation', {
       const keyChanged = Boolean(oldKey) && Boolean(newKey) && oldKey !== newKey
       const isNewPatient = !oldKey && Boolean(newKey)
       const wasSubmitted = this.readOnly || Boolean(this.consultationNo)
+      const updatedProfile = await updateCurrentPatientProfile({
+        patientName: payload.name,
+        phone: payload.phone,
+        idCard: payload.idCard,
+        gender: toBackendGender(payload.gender),
+        age: payload.age
+      })
 
       this.profile = payload
+      this.setPatientProfile({
+        ...(updatedProfile || {}),
+        patientName: updatedProfile?.patientName ?? payload.name,
+        phone: updatedProfile?.phone ?? payload.phone,
+        idCard: updatedProfile?.idCard ?? payload.idCard,
+        gender: updatedProfile?.gender ?? toBackendGender(payload.gender),
+        age: updatedProfile?.age ?? payload.age
+      })
       if (keyChanged || isNewPatient || wasSubmitted) {
         const savedProfile = { ...this.profile }
         const savedVisitInfo = { ...this.visitInfo }
@@ -418,7 +653,7 @@ export const useConsultationStore = defineStore('consultation', {
     // 会话轮换（过期重建）后记录归属变化：重新 bootstrap 获取新记录，并批量回放本地全部已答内容
     async resyncRecord(forceNewToken = false): Promise<PreconsultRecordViewBackend | null> {
       if (forceNewToken) {
-        await refreshAuthToken()
+        await this.loadCurrentPatientAuth()
       }
       const knownQuestions = [...this.questions]
       const refreshRes = await bootstrapPreconsult({
@@ -686,21 +921,24 @@ export const useConsultationStore = defineStore('consultation', {
       return true
     },
     async reset(options?: { requireAuth?: boolean }): Promise<boolean> {
+      const auth = this.patientAuth
       Object.assign(this, defaultState())
+      this.patientAuth = auth || null
       localStorage.removeItem(STORAGE_KEY)
-      try {
-        const token = await refreshAuthToken()
-        if (options?.requireAuth && !token) {
-          throw new Error('登录失败，请稍后重试')
+      if (auth) this.patientAuth = auth
+      if (auth) {
+        this.profile = {
+          ...this.profile,
+          name: String(auth.patientName || auth.username || ''),
+          gender: normalizeGender(auth.gender),
+          age: typeof auth.age === 'number' ? auth.age : null,
+          phone: String(auth.phone || (looksLikePhone(auth.username) ? auth.username : '')),
+          idCard: String(auth.idCard || ''),
+          cardNo: createDefaultCardNo(auth)
         }
-        return Boolean(token)
-      } catch (e) {
-        if (options?.requireAuth) {
-          throw e
-        }
-        console.warn('重置患者 Session 失败:', e)
-        return false
       }
+      this.persist()
+      return Boolean(this.patientAuth?.token || localStorage.getItem('patient_token'))
     }
   }
 })

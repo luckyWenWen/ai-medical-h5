@@ -25,7 +25,8 @@ interface AgreementData {
 const loading = ref(false)
 const agreement = ref<AgreementData | null>(null)
 
-const apiPath = computed(() => (isPrivacy.value ? '/preconsult/admin/agreements/1' : '/preconsult/admin/agreements/2'))
+const agreementType = computed(() => (isPrivacy.value ? 'PRIVACY_POLICY' : 'SERVICE_AGREEMENT'))
+const apiPath = computed(() => `/preconsult/client/agreements/${agreementType.value}`)
 const agreementTitle = computed(() => agreement.value?.title || title.value)
 const updatedText = computed(() => {
   const data = agreement.value

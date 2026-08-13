@@ -11,6 +11,42 @@ interface ApiEnvelope<T> {
 
 type RequestConfig = Omit<AxiosRequestConfig, 'url' | 'method'>
 
+export interface PatientAuthInfo {
+  patientId?: string
+  username?: string
+  patientName?: string
+  phone?: string | null
+  idCard?: string | null
+  gender?: string | null
+  age?: number | null
+  token?: string
+  tokenName?: string
+  expiration?: number
+  [key: string]: unknown
+}
+
+export interface PatientProfileInfo {
+  patientId?: string
+  username?: string
+  patientName?: string
+  phone?: string | null
+  idCard?: string | null
+  gender?: string | null
+  age?: number | null
+  token?: string | null
+  tokenName?: string | null
+  expiration?: number | null
+  [key: string]: unknown
+}
+
+export interface PatientProfileUpdateDTO {
+  patientName?: string
+  phone?: string
+  idCard?: string
+  gender?: string
+  age?: number | null
+}
+
 function saveTokenFromResponse(body: ApiEnvelope<any> | any): string | null {
   const data = body?.data
   const token =
@@ -81,37 +117,9 @@ export function extractAndSaveUrlToken(): string | null {
   return localStorage.getItem('patient_token')
 }
 
-let autoLoginPromise: Promise<string | null> | null = null
-
-// 自动确保有效 Auth Token，如本地未存储则尝试自动登录获取
+// 只读取现有 Auth Token；没有登录态时交给路由跳转登录页。
 export async function ensureAuthToken(): Promise<string | null> {
-  let token = extractAndSaveUrlToken()
-  if (token) return token
-
-  if (autoLoginPromise) return autoLoginPromise
-
-  autoLoginPromise = (async () => {
-    try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
-      const res = await axios.post<ApiEnvelope<any>>(
-        `${baseUrl}/preconsult/client/auth/login`,
-        {},
-        { timeout: 5000 }
-      )
-      const body = res.data
-      const newToken =
-        saveTokenFromResponse(body) ||
-        saveTokenFromHeaders(res.headers as Record<string, unknown>)
-      if (newToken) return newToken
-    } catch (e) {
-      console.warn('自动登录获取 H5 患者端 Auth Token 失败:', e)
-    } finally {
-      autoLoginPromise = null
-    }
-    return localStorage.getItem('patient_token')
-  })()
-
-  return autoLoginPromise
+  return extractAndSaveUrlToken()
 }
 
 export async function sendSmsCode(phone: string): Promise<void> {
@@ -123,21 +131,30 @@ export async function sendSmsCode(phone: string): Promise<void> {
   )
 }
 
-export async function loginWithSms(phone: string, code: string): Promise<string | null> {
+export async function loginWithPassword(username: string, password: string): Promise<PatientAuthInfo> {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
   const res = await axios.post<ApiEnvelope<any>>(
     `${baseUrl}/preconsult/client/auth/login`,
-    { phone, code, captcha: code },
+    { username, password },
     { timeout: 10000, withCredentials: true }
   )
+  const body = res.data
+  if (isPlainObject(body) && (body.success === false || !isSuccessCode(body.code))) {
+    throw new Error(body.message || body.msg || '登录失败')
+  }
+
+  const data = (isPlainObject(body) && 'data' in body ? body.data : body) as PatientAuthInfo
   const token =
-    saveTokenFromResponse(res.data) ||
+    saveTokenFromResponse(body) ||
     saveTokenFromHeaders(res.headers as Record<string, unknown>)
 
   const csrfHeader = res.headers['x-csrf-token'] || res.headers['X-CSRF-Token']
   if (csrfHeader) localStorage.setItem('csrf_token', String(csrfHeader))
 
-  return token
+  return {
+    ...data,
+    token: data?.token || token || undefined
+  }
 }
 
 export async function refreshAuthToken(): Promise<string | null> {
@@ -229,3 +246,14 @@ export const http = {
   }
 }
 
+export async function getCurrentPatientTokenInfo(): Promise<PatientAuthInfo> {
+  return http.get<PatientAuthInfo>('/preconsult/client/auth/token')
+}
+
+export async function getCurrentPatientProfile(): Promise<PatientProfileInfo> {
+  return http.get<PatientProfileInfo>('/preconsult/client/auth/profile')
+}
+
+export async function updateCurrentPatientProfile(payload: PatientProfileUpdateDTO): Promise<PatientProfileInfo> {
+  return http.put<PatientProfileInfo>('/preconsult/client/auth/profile', payload)
+}

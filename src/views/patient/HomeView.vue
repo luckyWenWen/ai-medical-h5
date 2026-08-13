@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { ensureAuthToken } from '@/api/request'
 import { useConsultationStore } from '@/stores/consultation'
 import stepOneImage from '@/assets/image/1.png'
 import stepTwoImage from '@/assets/image/2.png'
@@ -38,9 +37,14 @@ const tabItems = [
 async function startNew() {
   if (startingNew.value) return
 
+  if (!store.isLoggedIn) {
+    router.push({ name: 'login', query: { redirect: '/home' } })
+    return
+  }
+
   startingNew.value = true
   try {
-    await store.reset({ requireAuth: true })
+    await store.reset()
     router.push('/visit')
   } catch (error) {
     showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')
@@ -52,14 +56,13 @@ async function startNew() {
 async function resumeLast() {
   if (resuming.value) return
 
+  if (!store.isLoggedIn) {
+    router.push({ name: 'login', query: { redirect: '/home' } })
+    return
+  }
+
   resuming.value = true
   try {
-    const token = await ensureAuthToken()
-    if (!token) {
-      showToast('登录失败，请稍后重试')
-      return
-    }
-
     router.push('/consultation')
   } catch (error) {
     showToast(error instanceof Error ? error.message : '登录失败，请稍后重试')
