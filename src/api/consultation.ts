@@ -68,6 +68,59 @@ export interface PreconsultAttachmentBackend {
   url?: string
   /** 兼容旧版或网关转换后的附件标识字段。 */
   id?: string
+  ocrStatus?: string
+  ocrText?: string
+  ocrSummary?: string
+  ocrError?: string
+  ocrResult?: {
+    text?: string
+    summary?: string
+    status?: string
+    error?: string
+  }
+}
+
+export interface PreconsultOcrResponse {
+  id: string | number
+  recordId: string | number
+  templateQuestionId?: string | number
+  fileName?: string
+  fileUrl?: string
+  ocrText?: string
+  createdAt?: string
+  [key: string]: any
+}
+
+export interface PreconsultFreeTextRequest {
+  freeText: string
+}
+
+export interface PreconsultInitAudioChunkRequest {
+  fileName: string
+  fileSize?: number
+  totalChunks: number
+  identifier?: string
+}
+
+export interface PreconsultMergeAudioChunkRequest {
+  uploadId: string
+  fileName: string
+  totalChunks: number
+}
+
+export interface PreconsultAudioChunkUploadResponse {
+  [key: string]: any
+}
+
+export type PreconsultAudioChunkInitResponse = string | {
+  uploadId?: string
+  id?: string
+  data?: string
+  [key: string]: any
+}
+
+export interface PreconsultAudioChunkMergeResponse {
+  [key: string]: any
 }
 
 export interface MyPreconsultRecordItem {
@@ -223,7 +276,7 @@ export function convertBackendQuestionToFrontend(q: BackendQuestionItem): Consul
 }
 
 export function getVisibleQuestionsFromRecord(
-  record: PreconsultRecordViewBackend
+  record: Partial<PreconsultRecordViewBackend>
 ): ConsultationQuestion[] {
   const questions = (record.questions || []).map(convertBackendQuestionToFrontend)
   if (!Array.isArray(record.visibleTemplateQuestionIds)) {
@@ -439,6 +492,73 @@ export async function uploadAttachmentApi(
     `/preconsult/client/records/${recordId}/attachments`,
     formData,
     { headers: { 'Content-Type': 'multipart/form-data' } }
+  )
+}
+
+export async function uploadPreconsultOcrApi(
+  recordId: string,
+  templateQuestionId: string,
+  file: File
+): Promise<PreconsultOcrResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('recordId', recordId)
+  formData.append('templateQuestionId', templateQuestionId)
+  return http.post<PreconsultOcrResponse>(
+    `/preconsult/client/records/${recordId}/ocr`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  )
+}
+
+export async function savePreconsultFreeTextApi(
+  recordId: string,
+  payload: PreconsultFreeTextRequest
+): Promise<Record<string, any> | null> {
+  return http.post<Record<string, any> | null>(
+    `/preconsult/client/records/${recordId}/free-text`,
+    payload
+  )
+}
+
+export async function initPreconsultAudioChunkApi(
+  recordId: string,
+  payload: PreconsultInitAudioChunkRequest
+): Promise<string> {
+  const res = await http.post<PreconsultAudioChunkInitResponse>(
+    `/preconsult/client/records/${recordId}/audio/init-chunk`,
+    payload
+  )
+  if (typeof res === 'string') return res
+  return String(res?.uploadId || res?.id || res?.data || '')
+}
+
+export async function uploadPreconsultAudioChunkApi(
+  recordId: string,
+  payload: { uploadId: string; chunkNumber: number },
+  file: Blob
+): Promise<PreconsultAudioChunkUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return http.post<PreconsultAudioChunkUploadResponse>(
+    `/preconsult/client/records/${recordId}/audio/upload-chunk`,
+    formData,
+    {
+      params: {
+        uploadId: payload.uploadId,
+        chunkNumber: payload.chunkNumber
+      }
+    }
+  )
+}
+
+export async function mergePreconsultAudioChunksApi(
+  recordId: string,
+  payload: PreconsultMergeAudioChunkRequest
+): Promise<PreconsultAudioChunkMergeResponse> {
+  return http.post<PreconsultAudioChunkMergeResponse>(
+    `/preconsult/client/records/${recordId}/audio/merge-chunks`,
+    payload
   )
 }
 

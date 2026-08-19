@@ -20,9 +20,11 @@ import {
 import type {
   AnswerValue,
   ChatMessage,
+  ConsultationMode,
   ConsultationQuestion,
   ConsultationReport,
   PatientProfile,
+  SelfNarration,
   UploadMaterial,
   VisitInfo
 } from '@/types/consultation'
@@ -45,6 +47,8 @@ interface ConsultationState {
   consultationNo: string
   isRevising: boolean
   readOnly: boolean
+  consultationMode: ConsultationMode
+  selfNarration: SelfNarration | null
 }
 
 const defaultState = (): ConsultationState => ({
@@ -76,7 +80,9 @@ const defaultState = (): ConsultationState => ({
   report: null,
   consultationNo: '',
   isRevising: false,
-  readOnly: false
+  readOnly: false,
+  consultationMode: 'qa',
+  selfNarration: null
 })
 
 function readState(): Partial<ConsultationState> {
@@ -232,7 +238,7 @@ function formatBackendAnswer(answer: any): AnswerValue {
   return answer.displayText || answer.answerText || null
 }
 
-function hasAuthoritativeFlow(record: PreconsultRecordViewBackend): boolean {
+function hasAuthoritativeFlow(record: Partial<PreconsultRecordViewBackend>): boolean {
   return Array.isArray(record.visibleTemplateQuestionIds)
 }
 
@@ -242,9 +248,13 @@ function resolveDepartmentId(visitInfo: VisitInfo): number | undefined {
 }
 
 /** 构建随 bootstrap 落库的患者快照；姓名为空视为未填写，返回 undefined 不上送 */
-function buildPatientSnapshot(profile: PatientProfile): Record<string, unknown> | undefined {
+function buildPatientSnapshot(
+  profile: PatientProfile,
+  mode?: ConsultationMode,
+  selfNarration?: SelfNarration | null
+): Record<string, unknown> | undefined {
   if (!profile.name) return undefined
-  return {
+  const snapshot: Record<string, unknown> = {
     name: profile.name,
     gender: profile.gender,
     age: profile.age,
@@ -252,6 +262,13 @@ function buildPatientSnapshot(profile: PatientProfile): Record<string, unknown> 
     idCard: profile.idCard || '',
     cardNo: profile.cardNo || ''
   }
+  if (mode && mode !== 'qa') {
+    snapshot.consultationMode = mode
+  }
+  if (mode && mode !== 'qa' && (selfNarration?.text || selfNarration?.audioUrl)) {
+    snapshot.selfNarration = selfNarration
+  }
+  return snapshot
 }
 
 export const useConsultationStore = defineStore('consultation', {
@@ -302,6 +319,21 @@ export const useConsultationStore = defineStore('consultation', {
   actions: {
     persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.$state))
+    },
+    setConsultationMode(mode: ConsultationMode) {
+      this.consultationMode = mode
+      if (mode === 'qa') {
+        this.selfNarration = null
+      }
+      this.persist()
+    },
+    saveSelfNarration(payload: Omit<SelfNarration, 'updatedAt'> & { updatedAt?: string }) {
+      this.selfNarration = {
+        ...payload,
+        updatedAt: payload.updatedAt || new Date().toISOString()
+      }
+      this.consultationMode = payload.mode
+      this.persist()
     },
     setPatientAuth(auth: PatientAuthInfo) {
       const token = auth.token || this.patientAuth?.token || localStorage.getItem('patient_token') || ''
@@ -405,7 +437,7 @@ export const useConsultationStore = defineStore('consultation', {
       Object.assign(this, defaultState())
       this.persist()
     },
-    syncRecordView(record: PreconsultRecordViewBackend): boolean {
+    syncRecordView(record: Partial<PreconsultRecordViewBackend> & Record<string, any>): boolean {
       this.recordId = String(record.recordId || this.recordId)
       if (typeof record.recordVersion === 'number') {
         this.recordVersion = record.recordVersion
@@ -456,7 +488,7 @@ export const useConsultationStore = defineStore('consultation', {
       this.currentIndex = nextIndex >= 0 ? nextIndex : this.questions.length
       return true
     },
-    resumeRecordView(record: PreconsultRecordViewBackend & Record<string, any>) {
+    resumeRecordView(record: Partial<PreconsultRecordViewBackend> & Record<string, any>) {
       this.recordId = String(record.recordId || this.recordId)
       this.recordVersion = typeof record.recordVersion === 'number' ? record.recordVersion : this.recordVersion
       this.recordStatus = String(record.status || this.recordStatus || '')
@@ -552,7 +584,7 @@ export const useConsultationStore = defineStore('consultation', {
       try {
         const bootstrapRes = await bootstrapPreconsult({
           departmentId: resolveDepartmentId(this.visitInfo),
-          patientSnapshot: buildPatientSnapshot(this.profile)
+          patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
         })
         if (bootstrapRes && bootstrapRes.recordId) {
           loadedFromBackend = true
@@ -658,7 +690,7 @@ export const useConsultationStore = defineStore('consultation', {
       const knownQuestions = [...this.questions]
       const refreshRes = await bootstrapPreconsult({
         departmentId: resolveDepartmentId(this.visitInfo),
-        patientSnapshot: buildPatientSnapshot(this.profile)
+        patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
       })
       if (!refreshRes || !refreshRes.recordId) return null
       this.recordId = String(refreshRes.recordId)
@@ -750,7 +782,7 @@ export const useConsultationStore = defineStore('consultation', {
             if (status === 404 || status === 409 || error?.code === 409) {
               const refreshRes = await bootstrapPreconsult({
                 departmentId: resolveDepartmentId(this.visitInfo),
-                patientSnapshot: buildPatientSnapshot(this.profile)
+                patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
               })
               if (refreshRes && typeof refreshRes.recordVersion === 'number') {
                 this.recordId = String(refreshRes.recordId || this.recordId)
@@ -838,6 +870,16 @@ export const useConsultationStore = defineStore('consultation', {
         return
       }
       this.materials.push(material)
+      this.persist()
+    },
+    updateMaterial(id: string, patch: Partial<UploadMaterial>) {
+      if (this.readOnly) {
+        showToast('本次预问诊已经提交，无法修改资料')
+        return
+      }
+      this.materials = this.materials.map((item) => (
+        item.id === id ? { ...item, ...patch } : item
+      ))
       this.persist()
     },
     removeMaterial(id: string) {

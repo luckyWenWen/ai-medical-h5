@@ -1,6 +1,8 @@
 export type VisitType = 'first' | 'return'
 export type Gender = 'male' | 'female'
 export type QuestionType = 'single' | 'multi' | 'text' | 'number' | 'date' | 'bodyPart' | 'upload'
+export type ConsultationMode = 'qa' | 'text' | 'voice'
+export type UploadOcrStatus = 'idle' | 'pending' | 'recognizing' | 'success' | 'failed'
 
 export interface VisitInfo {
   visitType: VisitType
@@ -18,6 +20,14 @@ export interface PatientProfile {
   phone: string
   idCard: string
   cardNo: string
+}
+
+export interface SelfNarration {
+  mode: ConsultationMode
+  text: string
+  audioUrl?: string
+  recordedSeconds?: number
+  updatedAt?: string
 }
 
 export interface QuestionOption {
@@ -58,6 +68,10 @@ export interface UploadMaterial {
   type: 'image' | 'file'
   url: string
   status: 'local' | 'uploaded'
+  ocrStatus?: UploadOcrStatus
+  ocrText?: string
+  ocrSummary?: string
+  ocrError?: string
 }
 
 export interface ConsultationReport {

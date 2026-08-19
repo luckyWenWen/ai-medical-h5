@@ -228,6 +228,7 @@ async function resumeRecord(item: MyPreconsultRecordItem) {
     store.resumeRecordView({
       ...item,
       ...detail,
+      recordVersion: detail.recordVersion ?? item.recordVersion ?? 0,
       recordId
     })
     showDetail.value = false

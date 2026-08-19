@@ -8,7 +8,9 @@ import {
   type PreconsultFeedbackCategory,
   type PreconsultFeedbackItem
 } from '@/api/consultation'
+import { useConsultationStore } from '@/stores/consultation'
 
+const store = useConsultationStore()
 const submitting = ref(false)
 const loading = ref(false)
 const records = ref<PreconsultFeedbackItem[]>([])
@@ -36,6 +38,13 @@ const form = reactive({
 
 const totalCount = computed(() => records.value.length)
 const complaintCount = computed(() => records.value.filter((item) => item.category === 'COMPLAINT').length)
+
+const loginPatientName = computed(() =>
+  store.profile.name || store.patientAuth?.patientName || store.patientAuth?.username || ''
+)
+const loginPatientPhone = computed(() =>
+  store.profile.phone || store.patientAuth?.phone || store.patientAuth?.username || ''
+)
 
 function getFeedbackId(item: PreconsultFeedbackItem) {
   return String(item.feedbackNo || item.feedbackId || item.id || item.createTime || item.createdAt || '')
@@ -73,8 +82,12 @@ function resetForm() {
   form.category = 'SUGGESTION'
   form.content = ''
   form.attachmentUrls = ''
-  form.phone = ''
-  form.patientName = ''
+  fillLoginPatientInfo()
+}
+
+function fillLoginPatientInfo() {
+  form.patientName = String(loginPatientName.value || '')
+  form.phone = String(loginPatientPhone.value || '')
 }
 
 async function loadRecords() {
@@ -123,7 +136,18 @@ async function submitFeedback() {
   }
 }
 
-onMounted(loadRecords)
+onMounted(async () => {
+  try {
+    if (store.isLoggedIn) {
+      await store.loadCurrentPatientProfile()
+    }
+  } catch (error) {
+    console.warn('刷新反馈提交人信息失败:', error)
+  } finally {
+    fillLoginPatientInfo()
+    loadRecords()
+  }
+})
 </script>
 
 <template>

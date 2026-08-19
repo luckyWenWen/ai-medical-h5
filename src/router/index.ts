@@ -68,6 +68,18 @@ const router = createRouter({
       meta: { title: '智能问诊', requiresAuth: true }
     },
     {
+      path: '/self-narration',
+      name: 'self-narration',
+      component: () => import('@/views/patient/SelfNarrationView.vue'),
+      meta: { title: '自由描述', requiresAuth: true }
+    },
+    {
+      path: '/voice-narration',
+      name: 'voice-narration',
+      component: () => import('@/views/patient/VoiceNarrationView.vue'),
+      meta: { title: '语音自诉', requiresAuth: true }
+    },
+    {
       path: '/body',
       name: 'body',
       component: () => import('@/views/patient/BodySelectorView.vue'),
@@ -134,15 +146,22 @@ router.beforeEach(async (to, from) => {
     await store.loadCurrentPatientAuth()
   }
 
-  if (to.name === 'consultation') {
+  if (to.name === 'consultation' || to.name === 'self-narration' || to.name === 'voice-narration') {
     const hasRestoredRecord = Boolean(store.recordId && store.questions.length)
     if (!hasRestoredRecord && (!store.visitInfo.department || !store.profile.name || !store.profile.phone)) {
       return { name: 'visit' }
     }
+    if (to.name !== 'consultation') return
     if (store.isSubmittedRecord) {
       return { name: 'report' }
     }
   } else if (to.name === 'report') {
+    if (store.report) {
+      return
+    }
+    if (store.consultationMode !== 'qa' && store.recordId) {
+      return
+    }
     if (!store.isSubmittedRecord && (store.hasUnansweredRequiredQuestions || !store.questions.length)) {
       return { name: 'consultation' }
     }

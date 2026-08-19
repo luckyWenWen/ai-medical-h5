@@ -21,13 +21,13 @@ const settingItems = [
     desc: '查看历史预问诊报告',
     action: openRecords
   },
-  {
-    icon: 'comment-o',
-    tone: 'orange',
-    title: '投诉与反馈',
-    desc: '意见反馈与投诉建议',
-    action: () => router.push({ name: 'complaintFeedback' })
-  },
+  // {
+  //   icon: 'comment-o',
+  //   tone: 'orange',
+  //   title: '投诉与反馈',
+  //   desc: '意见反馈与投诉建议',
+  //   action: () => router.push({ name: 'complaintFeedback' })
+  // },
   {
     icon: 'replay',
     tone: 'purple',

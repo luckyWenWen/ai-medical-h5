@@ -127,7 +127,7 @@ export async function sendSmsCode(phone: string): Promise<void> {
   await axios.post(
     `${baseUrl}/preconsult/client/auth/sms/send`,
     { phone },
-    { timeout: 10000 }
+    { timeout: 90000 }
   )
 }
 
@@ -136,7 +136,7 @@ export async function loginWithPassword(username: string, password: string): Pro
   const res = await axios.post<ApiEnvelope<any>>(
     `${baseUrl}/preconsult/client/auth/login`,
     { username, password },
-    { timeout: 10000, withCredentials: true }
+    { timeout: 90000, withCredentials: true }
   )
   const body = res.data
   if (isPlainObject(body) && (body.success === false || !isSuccessCode(body.code))) {
@@ -165,7 +165,7 @@ export async function refreshAuthToken(): Promise<string | null> {
 
 export const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 10000,
+  timeout: 90000,
   withCredentials: true
 })
 
