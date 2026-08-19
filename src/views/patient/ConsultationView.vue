@@ -182,12 +182,14 @@ function selectBodyPart() {
 .consult-page {
   height: 100vh;
   overflow: hidden;
+  background: #e9eef2;
 }
 
 .chat-body {
   height: calc(100vh - 102px - env(safe-area-inset-bottom));
   overflow-y: auto;
-  padding: 10px 14px calc(var(--composer-height, 210px) + 14px);
+  background: #e9eef2;
+  padding: 14px 14px calc(var(--composer-height, 210px) + 14px);
 }
 
 .chat-body__inner {
@@ -203,6 +205,7 @@ function selectBodyPart() {
   z-index: 20;
   margin-top: 0;
   border-top: 1px solid var(--theme-border);
+  background: rgba(233, 238, 242, 0.96);
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
 }
 

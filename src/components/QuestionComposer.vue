@@ -62,12 +62,18 @@ const showAllowUnknown = computed(() => {
 
 function isExclusiveOption(labelOrValue: string) {
   const text = labelOrValue.trim()
-  return ['以上均无', '均无', '无', '没有', '否', '不清楚', '不确定'].some((keyword) => text === keyword || text.includes(keyword))
+  return ['以上均不是', '以上均无', '均不是', '均无', '无', '没有', '否', '不清楚', '不确定'].some((keyword) => text === keyword || text.includes(keyword))
 }
 
 function isExclusiveValue(value: string) {
   const option = props.question?.options?.find((item) => String(item.value) === String(value))
   return isExclusiveOption(option?.label || value)
+}
+
+function handleSingleChange(value: unknown) {
+  const nextValue = String(value)
+  singleValue.value = nextValue
+  emit('submit', nextValue)
 }
 
 function handleMultiChange(values: unknown[]) {
@@ -77,6 +83,7 @@ function handleMultiChange(values: unknown[]) {
 
   if (addedValue && isExclusiveValue(addedValue)) {
     multiValue.value = [addedValue]
+    emit('submit', [addedValue])
     return
   }
 
@@ -112,7 +119,11 @@ function submitUnknown() {
 <template>
   <div class="composer">
     <template v-if="question?.type === 'single'">
-      <van-radio-group v-model="singleValue" class="option-grid">
+      <van-radio-group
+        :model-value="singleValue"
+        class="option-grid"
+        @update:model-value="handleSingleChange"
+      >
         <van-radio
           v-for="option in question.options"
           :key="option.value"
@@ -172,7 +183,7 @@ function submitUnknown() {
     </template>
 
     <div
-      v-if="question && !['bodyPart', 'upload'].includes(question.type)"
+      v-if="question && !['bodyPart', 'upload'].includes(question.type) && (question.type !== 'single' || showAllowUnknown)"
       class="composer__actions"
     >
       <van-button
@@ -184,7 +195,14 @@ function submitUnknown() {
       >
         不清楚
       </van-button>
-      <van-button type="primary" class="composer__button" @click="submit">确定</van-button>
+      <van-button
+        v-if="question.type !== 'single'"
+        type="primary"
+        class="composer__button"
+        @click="submit"
+      >
+        确定
+      </van-button>
     </div>
   </div>
 </template>

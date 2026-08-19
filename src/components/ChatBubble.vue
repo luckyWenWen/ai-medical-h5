@@ -37,15 +37,17 @@ const avatarAlt = computed(() => (props.role === 'doctor' ? '医生头像' : '�
       :src="avatarUrl"
       :alt="avatarAlt"
     />
-    <div class="bubble">
-      <div class="bubble__text">{{ content }}</div>
+    <div class="chat-stack">
+      <div class="bubble">
+        <div class="bubble__text">{{ content }}</div>
+      </div>
       <button
         v-if="role === 'patient' && editable && questionId && !store.readOnly"
         class="bubble__edit"
         type="button"
         @click="emit('revise', questionId)"
       >
-        重新修改
+        修改
       </button>
     </div>
     <img
@@ -62,7 +64,7 @@ const avatarAlt = computed(() => (props.role === 'doctor' ? '医生头像' : '�
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 12px 0;
+  margin: 20px 0;
 }
 
 .chat-row--patient {
@@ -77,32 +79,64 @@ const avatarAlt = computed(() => (props.role === 'doctor' ? '医生头像' : '�
   object-fit: cover;
 }
 
+.chat-stack {
+  max-width: calc(100% - 46px);
+}
+
+.chat-row--patient .chat-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 .bubble {
-  max-width: 78%;
+  position: relative;
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 11px 13px;
   font-size: 15px;
   line-height: 1.55;
   word-break: break-word;
 }
 
 .chat-row--doctor .bubble {
-  background: var(--theme-chat-doctor-bg);
-  border: 1px solid var(--theme-border);
+  border-top-left-radius: 4px;
+  background: #fff;
+  color: #2b3340;
 }
 
 .chat-row--patient .bubble {
+  border-top-right-radius: 4px;
   background: var(--theme-chat-patient-bg);
   color: var(--theme-on-primary);
 }
 
+.chat-row--doctor .bubble::before,
+.chat-row--patient .bubble::before {
+  position: absolute;
+  top: 12px;
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  content: "";
+}
+
+.chat-row--doctor .bubble::before {
+  left: -6px;
+  border-right: 7px solid #fff;
+}
+
+.chat-row--patient .bubble::before {
+  right: -6px;
+  border-left: 7px solid #2488fa;
+}
+
 .bubble__edit {
-  display: block;
   border: 0;
   background: transparent;
-  color: inherit;
-  opacity: 0.86;
-  padding: 6px 0 0;
-  font-size: 12px;
+  color: #2488fa;
+  padding: 4px 2px 0;
+  font-size: 14px;
+  line-height: 1.3;
 }
 </style>
