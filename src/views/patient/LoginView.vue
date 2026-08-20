@@ -118,7 +118,7 @@ async function handleLogin() {
   width: min(100%, 520px);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 360px 16px 22px;
+  padding: 70% 16px 22px;
 }
 
 .login-title {
@@ -144,7 +144,8 @@ async function handleLogin() {
 .login-form {
   border: 1px solid rgba(228, 234, 242, 0.72);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
+  /* background: rgba(255, 255, 255, 0.9); */
+  background: transparent;
   padding: 22px 14px 16px;
   box-shadow: 0 12px 28px rgba(31, 42, 61, 0.08);
   backdrop-filter: blur(10px);
@@ -227,9 +228,9 @@ async function handleLogin() {
   font-weight: 700;
 }
 
-@media (max-height: 720px) {
+/* @media (max-height: 720px) {
   .login-content {
-    padding-top: 310px;
+    padding-top: 210px;
   }
 }
 
@@ -237,5 +238,5 @@ async function handleLogin() {
   .login-content {
     padding-top: 260px;
   }
-}
+} */
 </style>
