@@ -29,6 +29,14 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
 }
 
+function normalizeBasePath(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === '/') return '/'
+
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return `${withLeadingSlash.replace(/\/+$/, '')}/`
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://192.168.1.88:9120/'
@@ -37,6 +45,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [vue()],
+    base: normalizeBasePath(env.VITE_BASE_PATH || '/'),
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url))
