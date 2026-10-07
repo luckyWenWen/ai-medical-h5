@@ -390,6 +390,14 @@ function revise() {
     showToast('本次预问诊已经提交，只能查看，无法修改')
     return
   }
+  if (store.consultationMode === 'voice') {
+    router.push('/voice-narration')
+    return
+  }
+  if (store.consultationMode === 'text') {
+    router.push('/self-narration')
+    return
+  }
   router.push({ path: '/consultation', query: { revise: '1' } })
 }
 </script>
