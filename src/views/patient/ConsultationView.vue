@@ -126,6 +126,14 @@ function upload() {
   router.push('/upload')
 }
 
+function reviseQuestion(questionId: string) {
+  store.reviseQuestion(questionId)
+  if (store.readOnly || store.consultationNo) return
+  if (store.currentQuestion?.id === questionId && store.currentQuestion.type === 'upload') {
+    upload()
+  }
+}
+
 function selectBodyPart() {
   router.push('/body')
 }
@@ -153,7 +161,7 @@ function selectBodyPart() {
           :question-id="message.questionId"
           :editable="message.role === 'patient'"
           :patient-gender="store.profile.gender"
-          @revise="store.reviseQuestion"
+          @revise="reviseQuestion"
         />
       </div>
     </main>

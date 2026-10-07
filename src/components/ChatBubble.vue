@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { showImagePreview } from 'vant'
 import boyAvatar from '@/assets/image/boy.png'
 import doctorAvatar from '@/assets/image/doctor.png'
 import girlAvatar from '@/assets/image/girl.png'
@@ -19,6 +20,22 @@ const emit = defineEmits<{
 }>()
 
 const store = useConsultationStore()
+
+const uploadedImages = computed(() => {
+  const question = store.questions.find((item) => item.id === props.questionId)
+  if (props.role !== 'patient' || question?.type !== 'upload') return []
+  return store.materials.filter((item) => item.type === 'image' && item.status === 'uploaded' && item.url)
+})
+
+function previewImage(index: number) {
+  showImagePreview({
+    images: uploadedImages.value.map((item) => item.url),
+    startPosition: index,
+    closeable: true,
+    closeOnClickOverlay: true,
+    closeOnClickImage: true
+  })
+}
 
 const avatarUrl = computed(() => {
   if (props.role === 'doctor') return doctorAvatar
@@ -40,6 +57,18 @@ const avatarAlt = computed(() => (props.role === 'doctor' ? '医生头像' : '�
     <div class="chat-stack">
       <div class="bubble">
         <div class="bubble__text">{{ content }}</div>
+      </div>
+      <div v-if="uploadedImages.length" class="bubble__images">
+        <button
+          v-for="(image, index) in uploadedImages"
+          :key="image.id"
+          class="bubble__image"
+          type="button"
+          :aria-label="`放大查看 ${image.name}`"
+          @click="previewImage(index)"
+        >
+          <img :src="image.url" :alt="image.name" />
+        </button>
       </div>
       <button
         v-if="role === 'patient' && editable && questionId && !store.readOnly"
@@ -138,5 +167,30 @@ const avatarAlt = computed(() => (props.role === 'doctor' ? '医生头像' : '�
   padding: 4px 2px 0;
   font-size: 14px;
   line-height: 1.3;
+}
+
+.bubble__images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bubble__image {
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0;
+}
+
+.bubble__image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 </style>
