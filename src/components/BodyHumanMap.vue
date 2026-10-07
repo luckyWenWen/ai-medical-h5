@@ -100,10 +100,6 @@ const selectedHighlight = computed(() => {
   return ''
 })
 
-function getButtonY(part: BodyPartView) {
-  return part.centerY
-}
-
 function isSelected(value: string) {
   return props.selectedCodes.includes(value)
 }
@@ -129,7 +125,7 @@ function togglePart(part: BodyPartView) {
           type="button"
           class="body-map__button"
           :class="{ active: isSelected(part.option.value) }"
-          :style="{ top: `${part.centerY}px` }"
+          :style="{ top: `${(part.centerY / 600) * 100}%` }"
           :aria-pressed="isSelected(part.option.value)"
           @click="togglePart(part)"
         >
@@ -143,8 +139,8 @@ function togglePart(part: BodyPartView) {
             v-if="part.line"
             :x1="part.line.x"
             :y1="part.line.y"
-            x2="371"
-            :y2="getButtonY(part)"
+            x2="322"
+            :y2="part.centerY"
             stroke="#8fd3f4"
             stroke-width="2"
           />
@@ -160,25 +156,22 @@ function togglePart(part: BodyPartView) {
 
 <style scoped>
 .body-map {
-  min-height: 610px;
   background: #fff;
 }
 
 .body-map__stage {
   position: relative;
-  display: flex;
   width: 100%;
-  min-height: 600px;
-  align-items: flex-start;
+  /* Keep the image, SVG and buttons in the same 420 × 600 coordinate space. */
+  aspect-ratio: 420 / 600;
   overflow: hidden;
 }
 
 .body-map__image-wrap {
-  position: relative;
-  width: calc(100% - 104px);
-  max-width: 340px;
-  height: 600px;
-  flex: 1 1 auto;
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(100% * 316 / 420);
+  height: 100%;
 }
 
 .body-map__main,
@@ -204,16 +197,16 @@ function togglePart(part: BodyPartView) {
   inset: 0;
   z-index: 2;
   width: 100%;
-  height: 600px;
+  height: 100%;
   overflow: visible;
   pointer-events: none;
 }
 
 .body-map__buttons {
-  position: relative;
-  width: 104px;
-  height: 600px;
-  flex: 0 0 104px;
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: calc(100% * 104 / 420);
+  height: 100%;
 }
 
 .body-map__button {
@@ -221,7 +214,7 @@ function togglePart(part: BodyPartView) {
   right: 0;
   z-index: 3;
   display: inline-flex;
-  width: 98px;
+  width: calc(100% * 98 / 104);
   height: 34px;
   align-items: center;
   justify-content: center;
@@ -255,17 +248,7 @@ function togglePart(part: BodyPartView) {
 }
 
 @media (max-width: 370px) {
-  .body-map__image-wrap {
-    width: calc(100% - 94px);
-  }
-
-  .body-map__buttons {
-    width: 94px;
-    flex-basis: 94px;
-  }
-
   .body-map__button {
-    width: 88px;
     font-size: 13px;
   }
 }
