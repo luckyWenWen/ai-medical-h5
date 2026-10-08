@@ -74,6 +74,12 @@ export interface UploadMaterial {
   ocrError?: string
 }
 
+export interface ConsultationReportOcrItem {
+  fileName?: string
+  fileUrl: string
+  ocrText?: string
+}
+
 export interface ConsultationReport {
   chiefComplaint: string
   presentIllness: string
@@ -83,4 +89,5 @@ export interface ConsultationReport {
   materialSummary: string
   riskTips: string[]
   draftMedicalRecord: string
+  ocrResults?: ConsultationReportOcrItem[]
 }

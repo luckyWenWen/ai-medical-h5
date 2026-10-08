@@ -417,6 +417,20 @@ export async function submitPreconsultApi(
   )
 }
 
+function mapReportOcrResults(data: Record<string, any>): Array<{ fileName: string; fileUrl: string }> {
+  const list = Array.isArray(data?.ocrResults) ? data.ocrResults : []
+  return list
+    .map((item) => {
+      const row = (item && typeof item === 'object' ? item : {}) as Record<string, any>
+      return {
+        fileName: String(row.fileName || ''),
+        fileUrl: String(row.fileUrl || row.url || ''),
+        ocrText: String(row.ocrText || '')
+      }
+    })
+    .filter((item) => Boolean(item.fileUrl))
+}
+
 export async function getPreconsultResultApi(recordId: string): Promise<ConsultationReport> {
   const data = await http.get<Record<string, any>>(`/preconsult/client/records/${recordId}/result`)
   // 后端风险信息为 risk: {level, message, action} 对象，转换为前端提示数组
@@ -439,7 +453,8 @@ export async function getPreconsultResultApi(recordId: string): Promise<Consulta
       data.allergyHistory && `过敏史：${data.allergyHistory}`
     ]
       .filter(Boolean)
-      .join('\n')
+      .join('\n'),
+    ocrResults: mapReportOcrResults(data)
   }
 }
 
