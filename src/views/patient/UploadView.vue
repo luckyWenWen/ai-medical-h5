@@ -2,62 +2,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showImagePreview } from 'vant'
+import type { UploaderFileListItem as VantFile } from 'vant'
 import { uploadPreconsultOcrApi } from '@/api/consultation'
 import AppNavBar from '@/components/AppNavBar.vue'
+import OcrReportDisplay from '@/components/OcrReportDisplay.vue'
 import { useConsultationStore } from '@/stores/consultation'
 import type { UploadMaterial, UploadOcrStatus } from '@/types/consultation'
-
-interface VantFile {
-  file?: File
-  content?: string
-  url?: string
-  message?: string
-}
 
 const router = useRouter()
 const store = useConsultationStore()
 const fileList = ref<VantFile[]>([])
 const submitting = ref(false)
+const ocrRequestCount = ref(0)
+const isRecognizing = computed(() => ocrRequestCount.value > 0)
 const expandedOcrIds = ref<Record<string, boolean>>({})
-
-interface OcrDisplayRow {
-  seq: string
-  code: string
-  name: string
-  result: string
-  unit: string
-  reference: string
-  abnormal: boolean
-}
-
-const bloodRoutineCodeSeq: Record<string, string> = {
-  WBC: '1',
-  RBC: '2',
-  HGB: '3',
-  HCT: '4',
-  MCV: '5',
-  MCH: '6',
-  MCHC: '7',
-  PLT: '8',
-  LYMPHP: '9',
-  NEUTP: '10',
-  MONOP: '11',
-  EOP: '12',
-  E0P: '12',
-  BASOP: '13',
-  LYMPHN: '14',
-  NEUT: '15',
-  MONON: '16',
-  EON: '17',
-  BASON: '18',
-  'RDW-CV': '19',
-  'RDW-SD': '20',
-  PDW: '21',
-  MPV: '22',
-  PCT: '23',
-  'P-LCR': '24',
-  ESR: '25'
-}
 
 const question = computed(() => store.currentQuestion)
 const hasMaterials = computed(() => store.materials.length > 0)
@@ -74,6 +32,7 @@ const ocrFailedCount = computed(() =>
   store.materials.filter((material) => material.ocrStatus === 'failed').length
 )
 const actionText = computed(() => {
+  if (isRecognizing.value) return '正在识别，请稍候'
   if (!hasMaterials.value) return '暂不上传'
   if (!uploadedMaterials.value.length) return '跳过失败项并继续'
   if (ocrRecognizingCount.value) return '识别中，可稍后提交'
@@ -212,174 +171,6 @@ function getFileUrlFromResponse(response: Record<string, any>) {
   )
 }
 
-function normalizeOcrLines(text?: string) {
-  return String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
-
-function isReportHeader(line: string) {
-  return /^(序号|代码|项目名称|项目|结果|单位|参考值)$/.test(line)
-}
-
-function isLikelyCode(line: string) {
-  return /^[A-Z][A-Z0-9-]{1,}$/.test(line) || /^[A-Z]-[A-Z]+$/.test(line)
-}
-
-function isLikelyResult(line: string) {
-  return /^[↑↓+\-]?\d+(?:\.\d+)?$/.test(line)
-}
-
-function isLikelyUnit(line: string) {
-  return /^(%|fL|pg|g\/L|mg\/L|mmol\/L|umol\/L|10\^?\d+\/L|10\d+\/L)$/i.test(line)
-}
-
-function isLikelyReference(line: string) {
-  return /^[男女]?[：:]?\s*[↑↓]?\d+(?:\.\d+)?\s*[-—~－]+\s*\d+(?:\.\d+)?$/.test(line)
-    || /^[↑↓]?\d+(?:\.\d+)?\s*[-—~－]+\s*\d+(?:\.\d+)?$/.test(line)
-}
-
-function splitSequenceAndCode(line: string) {
-  const matched = line.match(/^(\d{1,2})\s*([A-Za-z][A-Za-z0-9-]*)?$/)
-  if (!matched) return null
-  return {
-    seq: matched[1],
-    code: matched[2] || ''
-  }
-}
-
-function getRowStart(lines: string[], index: number, inferredSeq: number) {
-  const current = lines[index]
-  const sequenceStart = splitSequenceAndCode(current)
-  if (sequenceStart) return sequenceStart
-
-  const previous = lines[index - 1] || ''
-  const next = lines[index + 1] || ''
-  if (
-    isLikelyCode(current) &&
-    !splitSequenceAndCode(previous) &&
-    /[\u4e00-\u9fa5]/.test(next || '')
-  ) {
-    return {
-      seq: bloodRoutineCodeSeq[current.toUpperCase()] || String(inferredSeq),
-      code: current
-    }
-  }
-
-  return null
-}
-
-function splitNameAndInlineResult(line: string) {
-  const matched = line.match(/^(.+?)([↑↓]?\d+(?:\.\d+)?)$/)
-  if (!matched || !/[\u4e00-\u9fa5]/.test(matched[1])) {
-    return { name: line, result: '' }
-  }
-  return {
-    name: matched[1].trim(),
-    result: matched[2]
-  }
-}
-
-function getOcrDisplay(text?: string) {
-  const lines = normalizeOcrLines(text)
-  const title = lines.find((line) => /报告单|报告$/.test(line)) || ''
-  const metaKeys = ['姓名', '性别', '年龄', '标本编号', '标本种类', '申请科室', '送检医师', '条码编号', '临床诊断', '核收时间', '报告时间']
-  const meta: Array<{ label: string; value: string }> = []
-
-  lines.forEach((line, index) => {
-    const inline = line.match(/^(.{2,8}?)[：:]\s*(.+)$/)
-    if (inline && metaKeys.includes(inline[1].trim()) && inline[2].trim()) {
-      meta.push({ label: inline[1].trim(), value: inline[2].trim() })
-      return
-    }
-
-    const splitLabel = line.match(/^(.{2,8}?)[：:]$/)
-    const next = lines[index + 1] || ''
-    if (
-      splitLabel &&
-      metaKeys.includes(splitLabel[1].trim()) &&
-      next &&
-      !isReportHeader(next) &&
-      !splitSequenceAndCode(next)
-    ) {
-      meta.push({ label: splitLabel[1].trim(), value: next })
-    }
-  })
-
-  const rows: OcrDisplayRow[] = []
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const current = lines[i]
-    const start = getRowStart(lines, i, rows.length + 1)
-    if (!start) continue
-
-    let cursor = i + 1
-    let code = start.code
-    if (!code && isLikelyCode(lines[cursor] || '')) {
-      code = lines[cursor]
-      cursor += 1
-    }
-    if (!code) continue
-
-    const nameLine = lines[cursor] || ''
-    if (!nameLine || isReportHeader(nameLine) || splitSequenceAndCode(nameLine)) continue
-
-    const nameInfo = splitNameAndInlineResult(nameLine)
-    let name = nameInfo.name
-    let result = nameInfo.result
-    cursor += 1
-
-    if (!result && isLikelyResult(lines[cursor] || '')) {
-      result = lines[cursor]
-      cursor += 1
-    }
-    if (!result) continue
-
-    let unit = ''
-    let reference = ''
-    const maybeUnit = lines[cursor] || ''
-    if (isLikelyUnit(maybeUnit)) {
-      unit = maybeUnit
-      cursor += 1
-    }
-
-    const maybeReference = lines[cursor] || ''
-    if (isLikelyReference(maybeReference)) {
-      reference = maybeReference
-    }
-
-    rows.push({
-      seq: start.seq,
-      code,
-      name,
-      result,
-      unit,
-      reference,
-      abnormal: result.includes('↑') || result.includes('↓') || reference.includes('↑') || reference.includes('↓')
-    })
-  }
-
-  const uniqRows = Array.from(
-    new Map(rows.map((row) => [`${row.seq}-${row.code}-${row.name}`, row])).values()
-  ).sort((a, b) => Number(a.seq) - Number(b.seq))
-
-  const usedMeta = new Set(meta.map((item) => `${item.label}:${item.value}`))
-  const uniqMeta = meta.filter((item) => {
-    const key = `${item.label}:${item.value}`
-    if (!usedMeta.has(key)) return false
-    usedMeta.delete(key)
-    return true
-  })
-
-  return {
-    title,
-    meta: uniqMeta.slice(0, 8),
-    rows: uniqRows,
-    lines: lines.filter((line) => !isReportHeader(line)).slice(0, 80)
-  }
-}
-
 function isOcrExpanded(id: string) {
   return Boolean(expandedOcrIds.value[id])
 }
@@ -438,6 +229,10 @@ async function afterRead(item: VantFile | VantFile[]) {
     let ocrError = ''
     let response: Record<string, any> = {}
 
+    fileItem.status = 'uploading'
+    fileItem.message = '正在识别...'
+    ocrRequestCount.value += 1
+
     try {
       response = await uploadPreconsultOcrApi(store.recordId, currentQuestion.id, file)
       const backendId = getOcrIdFromResponse(response)
@@ -450,11 +245,17 @@ async function afterRead(item: VantFile | VantFile[]) {
       ocrSummary = getOcrSummaryFromResponse(response)
       ocrError = getOcrErrorFromResponse(response)
       ocrStatus = getOcrStatusFromResponse(response, Boolean(ocrText || ocrSummary))
+      fileItem.status = 'done'
+      fileItem.message = ''
     } catch (error) {
       console.warn('上传附件到后端接口失败:', error)
       showToast(`${file.name} 上传失败，请重试`)
       ocrStatus = 'failed'
       ocrError = '资料上传失败，无法识别'
+      fileItem.status = 'failed'
+      fileItem.message = '识别失败'
+    } finally {
+      ocrRequestCount.value -= 1
     }
 
     store.addMaterial({
@@ -470,11 +271,12 @@ async function afterRead(item: VantFile | VantFile[]) {
       ocrSummary,
       ocrError
     })
+    if (ocrText) expandedOcrIds.value[attachmentId] = true
   }
 }
 
 async function finishUpload() {
-  if (submitting.value) return
+  if (submitting.value || isRecognizing.value) return
   submitting.value = true
   try {
     const attachmentIds = uploadedMaterials.value.map((material) => material.id)
@@ -510,16 +312,24 @@ async function finishUpload() {
           multiple
           :max-count="maxFiles"
           :after-read="afterRead"
+          :disabled="isRecognizing || submitting"
+          :deletable="!isRecognizing && !submitting"
           @delete="onUploaderDelete"
           :accept="accept"
         />
       </section>
 
+      <div v-if="isRecognizing" class="ocr-loading" role="status" aria-live="polite">
+        <van-loading size="20px" color="var(--van-primary-color)">
+          正在识别资料，请稍候...
+        </van-loading>
+      </div>
+
       <div class="section-header">
-        <p class="section-title">已选择资料（{{ store.materials.length }} 份）</p>
+        <p class="section-title">已选择资料（{{ fileList.length }} 份）</p>
         <span v-if="hasMaterials" class="ocr-count">已识别 {{ ocrSuccessCount }} 份</span>
       </div>
-      <van-empty v-if="!hasMaterials" description="暂无资料，可直接跳过" />
+      <van-empty v-if="!hasMaterials && !isRecognizing" description="暂无资料，可直接跳过" />
       <div v-else class="materials-list">
         <article
           v-for="item in store.materials"
@@ -546,6 +356,7 @@ async function finishUpload() {
               size="small"
               type="danger"
               plain
+              :disabled="isRecognizing || submitting"
               @click="deleteMaterial(item.id)"
             >
               删除
@@ -568,61 +379,10 @@ async function finishUpload() {
                 {{ isOcrExpanded(item.id) ? '收起' : '查看' }}
               </van-button>
             </div>
-            <template
+            <OcrReportDisplay
               v-if="item.ocrText && isOcrExpanded(item.id)"
-              v-for="display in [getOcrDisplay(item.ocrText)]"
-              :key="`${item.id}-ocr-display`"
-            >
-              <div class="ocr-display">
-                <h3 v-if="display.title">{{ display.title }}</h3>
-
-                <div v-if="display.meta.length" class="ocr-meta-grid">
-                  <div
-                    v-for="meta in display.meta"
-                    :key="`${meta.label}-${meta.value}`"
-                    class="ocr-meta-item"
-                  >
-                    <span>{{ meta.label }}</span>
-                    <strong>{{ meta.value }}</strong>
-                  </div>
-                </div>
-
-                <div v-if="display.rows.length" class="ocr-result-list">
-                  <div class="ocr-result-list__header">
-                    <span>项目</span>
-                    <span>结果</span>
-                    <span>参考值</span>
-                  </div>
-                  <div
-                    v-for="row in display.rows"
-                    :key="`${row.seq}-${row.code}-${row.name}`"
-                    class="ocr-result-row"
-                    :class="{ 'ocr-result-row--abnormal': row.abnormal }"
-                  >
-                    <div class="ocr-result-row__name">
-                      <strong>{{ row.name }}</strong>
-                      <span>{{ row.seq }} {{ row.code }}</span>
-                    </div>
-                    <div class="ocr-result-row__value">
-                      <strong>{{ row.result }}</strong>
-                      <span v-if="row.unit">{{ row.unit }}</span>
-                    </div>
-                    <div class="ocr-result-row__reference">
-                      {{ row.reference || '-' }}
-                    </div>
-                  </div>
-                </div>
-
-                <div v-else class="ocr-lines">
-                  <p
-                    v-for="(line, index) in display.lines"
-                    :key="`${index}-${line}`"
-                  >
-                    {{ line }}
-                  </p>
-                </div>
-              </div>
-            </template>
+              :ocr-text="item.ocrText"
+            />
             <p v-else-if="!item.ocrText" class="ocr-empty">暂未识别到文字</p>
             <p v-if="item.ocrError" class="ocr-error">{{ item.ocrError }}</p>
           </section>
@@ -642,7 +402,14 @@ async function finishUpload() {
 
     <div class="fixed-action upload-fixed-action">
       <div class="fixed-action__inner">
-        <van-button type="primary" block :loading="submitting" @click="finishUpload">
+        <van-button
+          type="primary"
+          block
+          :loading="submitting || isRecognizing"
+          :loading-text="isRecognizing ? '正在识别，请稍候' : '提交中...'"
+          :disabled="isRecognizing"
+          @click="finishUpload"
+        >
           {{ actionText }}
         </van-button>
       </div>
@@ -653,6 +420,11 @@ async function finishUpload() {
 <style scoped>
 .upload-panel {
   padding: 14px;
+}
+
+.ocr-loading {
+  margin-top: 16px;
+  padding: 12px 0;
 }
 
 .upload-page-body {
@@ -767,10 +539,8 @@ async function finishUpload() {
 
 .ocr-panel {
   margin-top: 12px;
-  border: 1px solid #eef2f7;
-  border-radius: 8px;
-  background: #fbfcff;
-  padding: 10px;
+  border-top: 1px solid #eef2f7;
+  padding-top: 12px;
 }
 
 .ocr-panel__head {
@@ -798,130 +568,6 @@ async function finishUpload() {
   line-height: 1.4;
 }
 
-.ocr-display {
-  display: grid;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.ocr-display h3 {
-  margin: 0;
-  color: #17233c;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.ocr-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.ocr-meta-item {
-  min-width: 0;
-  border-radius: 6px;
-  background: #f1f5fb;
-  padding: 7px 8px;
-}
-
-.ocr-meta-item span,
-.ocr-result-list__header {
-  color: #7b8ca5;
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.ocr-meta-item strong {
-  display: block;
-  overflow: hidden;
-  margin-top: 3px;
-  color: #1a2b45;
-  font-size: 12px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ocr-result-list {
-  overflow: hidden;
-  border: 1px solid #e4ebf5;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.ocr-result-list__header,
-.ocr-result-row {
-  display: grid;
-  grid-template-columns: minmax(118px, 1.4fr) minmax(72px, 0.8fr) minmax(80px, 1fr);
-  gap: 8px;
-  align-items: center;
-}
-
-.ocr-result-list__header {
-  background: #f5f8fc;
-  padding: 7px 8px;
-  font-weight: 600;
-}
-
-.ocr-result-row {
-  padding: 9px 8px;
-  border-top: 1px solid #eef2f7;
-}
-
-.ocr-result-row--abnormal {
-  background: #fff8f0;
-}
-
-.ocr-result-row__name,
-.ocr-result-row__value {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.ocr-result-row__name strong,
-.ocr-result-row__value strong {
-  overflow-wrap: anywhere;
-  color: #17233c;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.ocr-result-row--abnormal .ocr-result-row__value strong {
-  color: #d46b08;
-}
-
-.ocr-result-row__name span,
-.ocr-result-row__value span {
-  overflow-wrap: anywhere;
-  color: #7b8ca5;
-  font-size: 11px;
-  line-height: 1.25;
-}
-
-.ocr-result-row__reference {
-  overflow-wrap: anywhere;
-  color: #5d6f86;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.ocr-lines {
-  display: grid;
-  gap: 6px;
-}
-
-.ocr-lines p {
-  margin: 0;
-  border-radius: 6px;
-  background: #f5f8fc;
-  padding: 7px 8px;
-  color: #17233c;
-  font-size: 12px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
 .ocr-empty {
   margin: 10px 0 0;
   border-radius: 6px;
@@ -930,18 +576,6 @@ async function finishUpload() {
   color: #7b8ca5;
   font-size: 12px;
   line-height: 1.5;
-}
-
-@media (max-width: 360px) {
-  .ocr-meta-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .ocr-result-list__header,
-  .ocr-result-row {
-    grid-template-columns: minmax(104px, 1.3fr) minmax(58px, 0.7fr) minmax(68px, 0.9fr);
-    gap: 6px;
-  }
 }
 
 .ocr-error {
