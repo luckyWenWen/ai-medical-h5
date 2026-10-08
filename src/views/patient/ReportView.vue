@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { showConfirmDialog, showImagePreview, showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
 import OcrReportDisplay from '@/components/OcrReportDisplay.vue'
+import { parseMaterialSummary, type MaterialOcrDisplay } from '@/utils/materialSummary'
 import { useConsultationStore } from '@/stores/consultation'
 import type { UploadMaterial } from '@/types/consultation'
 
@@ -12,16 +13,6 @@ const store = useConsultationStore()
 const report = computed(() => store.report)
 const materialSummaryExpanded = ref(false)
 const hasRiskTips = computed(() => Boolean(report.value?.riskTips?.length))
-
-interface MaterialOcrDisplay {
-  id: string
-  name: string
-  type: UploadMaterial['type']
-  url: string
-  ocrText: string
-  ocrSummary: string
-  ocrError: string
-}
 
 const textSections = computed(() => [
   {
@@ -115,32 +106,6 @@ function previewMaterial(item: UploadMaterial) {
   } else if (item.name) {
     showToast(`已归档资料：${item.name}`)
   }
-}
-
-function parseMaterialSummary(summary: string): MaterialOcrDisplay[] {
-  if (!summary || summary === '未上传检查资料') return []
-  return summary
-    .split(/(?=【报告[：:]\s*[^】]+】)/g)
-    .map<MaterialOcrDisplay | null>((part, index) => {
-      const matched = part.match(/【报告[：:]\s*([^】]+)】/)
-      if (!matched) return null
-      const name = matched[1].trim()
-      const ocrText = part
-        .replace(matched[0], '')
-        .replace(/^[；;，,\s]+/, '')
-        .trim()
-
-      return {
-        id: `summary-${index}-${name}`,
-        name,
-        type: 'file' as const,
-        url: '',
-        ocrText: /^图片\s*OCR\s*识别异常/.test(ocrText) ? '' : ocrText,
-        ocrSummary: '',
-        ocrError: /^图片\s*OCR\s*识别异常/.test(ocrText) ? '图片 OCR 识别异常' : ''
-      }
-    })
-    .filter((item): item is MaterialOcrDisplay => Boolean(item))
 }
 
 async function submit() {

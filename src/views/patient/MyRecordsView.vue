@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
+import OcrReportDisplay from '@/components/OcrReportDisplay.vue'
+import { getMaterialSummaryInfo } from '@/utils/materialSummary'
 import {
   getPreconsultResultApi,
   getMyPreconsultRecords,
@@ -23,6 +25,10 @@ const currentRecord = ref<MyPreconsultRecordItem | null>(null)
 const recordDetail = ref<Record<string, any> | null>(null)
 const resultDetail = ref<ConsultationReport | null>(null)
 const activeDetailTab = ref<'result' | 'process'>('process')
+const materialSummaryExpanded = ref(false)
+const materialSummaryInfo = computed(() =>
+  getMaterialSummaryInfo(resultDetail.value?.materialSummary || '')
+)
 
 const submittedCount = computed(() => records.value.filter((item) => normalizeStatus(item) === '已提交').length)
 const totalCount = computed(() => records.value.length)
@@ -187,6 +193,7 @@ async function openDetail(item: MyPreconsultRecordItem) {
   }
 
   currentRecord.value = item
+  materialSummaryExpanded.value = false
   activeDetailTab.value = isSubmittedRecord(item) ? 'result' : 'process'
   showDetail.value = true
   detailLoading.value = true
@@ -378,8 +385,39 @@ onMounted(loadRecords)
               </section>
 
               <section class="result-section result-section--cyan">
-                <h2>上传资料摘要：</h2>
-                <p>{{ resultDetail?.materialSummary || '未上传检查资料' }}</p>
+                <div class="material-summary-head">
+                  <div>
+                    <h2>上传资料摘要：</h2>
+                    <p>{{ materialSummaryInfo.text }}</p>
+                  </div>
+                  <van-button
+                    v-if="materialSummaryInfo.materials.length"
+                    size="mini"
+                    plain
+                    type="primary"
+                    :aria-expanded="materialSummaryExpanded"
+                    @click="materialSummaryExpanded = !materialSummaryExpanded"
+                  >
+                    {{ materialSummaryExpanded ? '收起' : '查看' }}
+                  </van-button>
+                </div>
+                <div v-if="materialSummaryExpanded" class="material-ocr-list">
+                  <article
+                    v-for="item in materialSummaryInfo.materials"
+                    :key="item.id"
+                    class="material-ocr-card"
+                  >
+                    <div class="material-ocr-card__head">
+                      <strong>{{ item.name }}</strong>
+                      <van-tag v-if="item.ocrText" type="success">OCR识别完成</van-tag>
+                      <van-tag v-else type="warning">无识别文本</van-tag>
+                    </div>
+                    <OcrReportDisplay v-if="item.ocrText" :ocr-text="item.ocrText" />
+                    <p v-else class="material-ocr-empty">
+                      {{ item.ocrError || '暂未识别到文字' }}
+                    </p>
+                  </article>
+                </div>
               </section>
 
               <section class="result-section result-section--risk">
@@ -720,6 +758,66 @@ onMounted(loadRecords)
 
 .result-section--cyan {
   --section-dot: #16a6c8;
+}
+
+.material-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.material-summary-head > div {
+  min-width: 0;
+}
+
+.material-summary-head h2 {
+  margin-bottom: 8px;
+}
+
+.material-summary-head p {
+  color: #425071;
+  font-size: 15px;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.material-ocr-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.material-ocr-card {
+  min-width: 0;
+  border: 1px solid #e4ebf5;
+  border-radius: 8px;
+  background: #fbfcff;
+  padding: 10px;
+}
+
+.material-ocr-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.material-ocr-card__head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #17233c;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.material-ocr-card .material-ocr-empty {
+  margin-top: 10px;
+  color: #7b8ca5;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
 }
 
 .result-section--risk {
