@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { showToast } from 'vant'
+import { showToast, showImagePreview } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
 import {
   getPreconsultResultApi,
@@ -22,6 +22,30 @@ const showDetail = ref(false)
 const currentRecord = ref<MyPreconsultRecordItem | null>(null)
 const recordDetail = ref<Record<string, any> | null>(null)
 const resultDetail = ref<ConsultationReport | null>(null)
+
+const reportMaterials = computed(() =>
+  (resultDetail.value?.ocrResults || []).map((item, index) => ({
+    url: item.fileUrl,
+    name: item.fileName || `报告${index + 1}`,
+    ocrText: item.ocrText || ''
+  }))
+)
+
+const expandedMaterials = ref<Record<number, boolean>>({})
+
+function toggleMaterial(index: number) {
+  expandedMaterials.value = { ...expandedMaterials.value, [index]: !expandedMaterials.value[index] }
+}
+
+function previewReportImage(index: number) {
+  showImagePreview({
+    images: reportMaterials.value.map((item) => item.url),
+    startPosition: index,
+    closeable: true,
+    closeOnClickOverlay: true,
+    closeOnClickImage: true
+  })
+}
 const activeDetailTab = ref<'result' | 'process'>('process')
 
 const submittedCount = computed(() => records.value.filter((item) => normalizeStatus(item) === '已提交').length)
@@ -379,7 +403,39 @@ onMounted(loadRecords)
 
               <section class="result-section result-section--cyan">
                 <h2>上传资料摘要：</h2>
-                <p>{{ resultDetail?.materialSummary || '未上传检查资料' }}</p>
+                <p v-if="!reportMaterials.length">未上传检查资料</p>
+                <div
+                  v-for="(material, index) in reportMaterials"
+                  :key="material.url"
+                  class="material-item"
+                >
+                  <button
+                    class="material-image"
+                    type="button"
+                    :aria-label="`放大查看 ${material.name}`"
+                    :title="material.name"
+                    @click="previewReportImage(index)"
+                  >
+                    <img :src="material.url" :alt="material.name" />
+                  </button>
+                  <div class="material-body">
+                    <strong>{{ material.name }}</strong>
+                    <p
+                      v-if="material.ocrText"
+                      class="material-ocr"
+                      :class="{ expanded: expandedMaterials[index] }"
+                    >{{ material.ocrText }}</p>
+                    <p v-else class="material-ocr">未识别到文字内容</p>
+                    <button
+                      v-if="material.ocrText"
+                      class="material-toggle"
+                      type="button"
+                      @click="toggleMaterial(index)"
+                    >
+                      {{ expandedMaterials[index] ? '收起' : '展开全文' }}
+                    </button>
+                  </div>
+                </div>
               </section>
 
               <section class="result-section result-section--risk">
@@ -722,6 +778,66 @@ onMounted(loadRecords)
   --section-dot: #16a6c8;
 }
 
+.material-item {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.material-image {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0;
+}
+
+.material-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.material-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.material-body strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.material-ocr {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--theme-text-secondary, #666);
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.material-ocr.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.material-toggle {
+  margin-top: 4px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--theme-primary, #16a6c8);
+  font-size: 13px;
+}
 .result-section--risk {
   --section-dot: #ff9f1a;
   margin: 18px 0 8px;
