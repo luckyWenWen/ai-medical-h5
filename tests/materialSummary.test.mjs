@@ -45,3 +45,40 @@ test('空摘要和明确没有上传资料的记录不显示查看入口', () =>
     assert.deepEqual(getMaterialSummaryInfo(summary), { text: '未上传检查资料', materials: [] })
   }
 })
+
+test('新的OCR结果数组优先展示，摘要缺失时仍保留文件、预览链接和结构化文本', () => {
+  const info = getMaterialSummaryInfo('未上传检查资料', [
+    { fileName: '血常规.jpg', fileUrl: '/reports/blood.jpg', ocrText: fixture },
+    { fileName: '处方.pdf', fileUrl: '/reports/prescription.pdf?download=1' }
+  ])
+  assert.equal(info.text, '已上传 2 份资料，已识别 1 份')
+  assert.equal(info.materials[0].url, '/reports/blood.jpg')
+  assert.equal(info.materials[0].type, 'image')
+  assert.equal(info.materials[1].type, 'file')
+  assert.equal(info.materials[1].ocrText, '')
+  assert.equal(getOcrDisplay(info.materials[0].ocrText).rows.length, 25)
+})
+
+test('新结果与旧摘要按文件名兼容，优先使用新文本且不重复生成文件卡片', () => {
+  const summary = '已上传2个文件；【报告：血常规.jpg】图片 OCR 识别异常\n【报告：处方.jpg】每日一次，餐后服用'
+  const info = getMaterialSummaryInfo(summary, [
+    { fileName: '血常规.jpg', fileUrl: '/reports/blood.jpg', ocrText: fixture },
+    { fileName: '处方.jpg', fileUrl: '/reports/prescription.jpg', ocrText: '' }
+  ])
+  assert.equal(info.materials.length, 2)
+  assert.equal(info.text, '已上传 2 份资料，已识别 2 份')
+  assert.equal(info.materials[0].ocrText, fixture)
+  assert.equal(info.materials[0].ocrError, '')
+  assert.equal(info.materials[1].ocrText, '每日一次，餐后服用')
+})
+
+test('新结果没有识别内容时只展示文件，不误计为识别成功', () => {
+  const info = getMaterialSummaryInfo('', [
+    { fileUrl: '/reports/one.jpg', ocrText: '图片 OCR 识别异常' },
+    { fileUrl: '/reports/two.jpg', ocrText: '   ' }
+  ])
+  assert.equal(info.text, '已上传 2 份资料')
+  assert.deepEqual(info.materials.map((item) => item.name), ['报告1', '报告2'])
+  assert.equal(info.materials[0].ocrError, '图片 OCR 识别异常')
+  assert.equal(info.materials[1].ocrText, '')
+})

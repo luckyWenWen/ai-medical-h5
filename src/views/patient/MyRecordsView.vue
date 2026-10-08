@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { showToast, showImagePreview } from 'vant'
 import AppNavBar from '@/components/AppNavBar.vue'
 import OcrReportDisplay from '@/components/OcrReportDisplay.vue'
-import { getMaterialSummaryInfo } from '@/utils/materialSummary'
+import { getMaterialSummaryInfo, type MaterialOcrDisplay } from '@/utils/materialSummary'
 import {
   getPreconsultResultApi,
   getMyPreconsultRecords,
@@ -25,24 +25,15 @@ const currentRecord = ref<MyPreconsultRecordItem | null>(null)
 const recordDetail = ref<Record<string, any> | null>(null)
 const resultDetail = ref<ConsultationReport | null>(null)
 
-const reportMaterials = computed(() =>
-  (resultDetail.value?.ocrResults || []).map((item, index) => ({
-    url: item.fileUrl,
-    name: item.fileName || `报告${index + 1}`,
-    ocrText: item.ocrText || ''
-  }))
-)
-
-const expandedMaterials = ref<Record<number, boolean>>({})
-
-function toggleMaterial(index: number) {
-  expandedMaterials.value = { ...expandedMaterials.value, [index]: !expandedMaterials.value[index] }
-}
-
-function previewReportImage(index: number) {
+function previewReportImage(material: MaterialOcrDisplay) {
+  const images = materialSummaryInfo.value.materials
+    .filter((item) => item.type === 'image' && item.url)
+    .map((item) => item.url)
+  const startPosition = images.indexOf(material.url)
+  if (startPosition < 0) return
   showImagePreview({
-    images: reportMaterials.value.map((item) => item.url),
-    startPosition: index,
+    images,
+    startPosition,
     closeable: true,
     closeOnClickOverlay: true,
     closeOnClickImage: true
@@ -51,7 +42,7 @@ function previewReportImage(index: number) {
 const activeDetailTab = ref<'result' | 'process'>('process')
 const materialSummaryExpanded = ref(false)
 const materialSummaryInfo = computed(() =>
-  getMaterialSummaryInfo(resultDetail.value?.materialSummary || '')
+  getMaterialSummaryInfo(resultDetail.value?.materialSummary || '', resultDetail.value?.ocrResults)
 )
 
 const submittedCount = computed(() => records.value.filter((item) => normalizeStatus(item) === '已提交').length)
@@ -409,39 +400,47 @@ onMounted(loadRecords)
               </section>
 
               <section class="result-section result-section--cyan">
-                <h2>上传资料摘要：</h2>
-                <p v-if="!reportMaterials.length">未上传检查资料</p>
-                <div
-                  v-for="(material, index) in reportMaterials"
-                  :key="material.url"
-                  class="material-item"
-                >
-                  <button
-                    class="material-image"
-                    type="button"
-                    :aria-label="`放大查看 ${material.name}`"
-                    :title="material.name"
-                    @click="previewReportImage(index)"
-                  >
-                    <img :src="material.url" :alt="material.name" />
-                  </button>
-                  <div class="material-body">
-                    <strong>{{ material.name }}</strong>
-                    <p
-                      v-if="material.ocrText"
-                      class="material-ocr"
-                      :class="{ expanded: expandedMaterials[index] }"
-                    >{{ material.ocrText }}</p>
-                    <p v-else class="material-ocr">未识别到文字内容</p>
-                    <button
-                      v-if="material.ocrText"
-                      class="material-toggle"
-                      type="button"
-                      @click="toggleMaterial(index)"
-                    >
-                      {{ expandedMaterials[index] ? '收起' : '展开全文' }}
-                    </button>
+                <div class="material-summary-head">
+                  <div>
+                    <h2>上传资料摘要：</h2>
+                    <p>{{ materialSummaryInfo.text }}</p>
                   </div>
+                  <van-button
+                    v-if="materialSummaryInfo.materials.length"
+                    size="mini"
+                    plain
+                    type="primary"
+                    :aria-expanded="materialSummaryExpanded"
+                    @click="materialSummaryExpanded = !materialSummaryExpanded"
+                  >
+                    {{ materialSummaryExpanded ? '收起' : '查看' }}
+                  </van-button>
+                </div>
+                <div v-if="materialSummaryExpanded" class="material-ocr-list">
+                  <article
+                    v-for="material in materialSummaryInfo.materials"
+                    :key="material.id"
+                    class="material-ocr-card"
+                  >
+                    <div class="material-ocr-card__head">
+                      <button
+                        v-if="material.type === 'image' && material.url"
+                        class="material-image"
+                        type="button"
+                        :aria-label="`放大查看 ${material.name}`"
+                        @click="previewReportImage(material)"
+                      >
+                        <img :src="material.url" :alt="material.name" />
+                      </button>
+                      <strong>{{ material.name }}</strong>
+                      <van-tag v-if="material.ocrText" type="success">OCR识别完成</van-tag>
+                      <van-tag v-else type="warning">无识别文本</van-tag>
+                    </div>
+                    <OcrReportDisplay v-if="material.ocrText" :ocr-text="material.ocrText" />
+                    <p v-else class="material-ocr-empty">
+                      {{ material.ocrError || '暂未识别到文字' }}
+                    </p>
+                  </article>
                 </div>
               </section>
 
@@ -785,7 +784,6 @@ onMounted(loadRecords)
   --section-dot: #16a6c8;
 }
 
-<<<<<<< HEAD
 .material-summary-head {
   display: flex;
   align-items: flex-start;
@@ -846,16 +844,9 @@ onMounted(loadRecords)
   text-align: left;
 }
 
-=======
-.material-item {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
-}
-
 .material-image {
-  width: 72px;
-  height: 72px;
+  width: 54px;
+  height: 54px;
   flex-shrink: 0;
   overflow: hidden;
   border: 1px solid var(--theme-border);
@@ -871,43 +862,6 @@ onMounted(loadRecords)
   object-fit: cover;
 }
 
-.material-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.material-body strong {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-
-.material-ocr {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--theme-text-secondary, #666);
-  white-space: pre-wrap;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.material-ocr.expanded {
-  display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
-}
-
-.material-toggle {
-  margin-top: 4px;
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--theme-primary, #16a6c8);
-  font-size: 13px;
-}
->>>>>>> c1c6aaba799363de2bd910ecf58e1cd6060a6b89
 .result-section--risk {
   --section-dot: #ff9f1a;
   margin: 18px 0 8px;

@@ -1,4 +1,4 @@
-import type { UploadMaterial } from '@/types/consultation'
+import type { ConsultationReportOcrItem, UploadMaterial } from '@/types/consultation'
 
 export interface MaterialOcrDisplay {
   id: string
@@ -37,13 +37,36 @@ export function parseMaterialSummary(summary: string): MaterialOcrDisplay[] {
     .filter((item): item is MaterialOcrDisplay => Boolean(item))
 }
 
-export function getMaterialSummaryInfo(summary: string) {
+export function getMaterialSummaryInfo(summary: string, ocrResults: ConsultationReportOcrItem[] = []) {
   const text = summary.trim()
+  const parsed = parseMaterialSummary(text)
+  if (ocrResults.length) {
+    const materials = ocrResults.map<MaterialOcrDisplay>((item, index) => {
+      const name = item.fileName || `报告${index + 1}`
+      const legacyMaterial = parsed.find((material) => material.name === name)
+      const ocrText = item.ocrText?.trim() ? item.ocrText : (legacyMaterial?.ocrText || '')
+      const failed = /^图片\s*OCR\s*识别异常/.test(ocrText)
+      const url = item.fileUrl || ''
+      return {
+        id: `ocr-result-${index}`,
+        name,
+        type: url && !/\.pdf(?:$|[?#])/i.test(name) && !/\.pdf(?:$|[?#])/i.test(url) ? 'image' : 'file',
+        url,
+        ocrText: failed ? '' : ocrText,
+        ocrSummary: '',
+        ocrError: failed ? '图片 OCR 识别异常' : (ocrText ? '' : (legacyMaterial?.ocrError || ''))
+      }
+    })
+    const recognizedCount = materials.filter((item) => item.ocrText).length
+    return {
+      text: `已上传 ${materials.length} 份资料${recognizedCount ? `，已识别 ${recognizedCount} 份` : ''}`,
+      materials
+    }
+  }
   if (!text || text === '未上传检查资料') {
     return { text: '未上传检查资料', materials: [] as MaterialOcrDisplay[] }
   }
 
-  const parsed = parseMaterialSummary(text)
   const reportedCount = text.match(/^已上传\s*(\d+)/)?.[1]
   const count = reportedCount === undefined ? parsed.length : Number(reportedCount)
   if (reportedCount !== undefined && count === 0 && !parsed.length) {
