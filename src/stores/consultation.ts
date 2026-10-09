@@ -10,6 +10,7 @@ import {
   submitPreconsultApi
 } from '@/api/consultation'
 import type { PreconsultRecordViewBackend } from '@/api/consultation'
+import { toPreconsultDepartmentId } from '@/api/directory'
 import {
   getCurrentPatientProfile,
   getCurrentPatientTokenInfo,
@@ -61,6 +62,7 @@ const defaultState = (): ConsultationState => ({
     department: '',
     departmentId: '',
     doctor: '',
+    doctorId: '',
     appointmentNo: '',
     visitTime: ''
   },
@@ -243,8 +245,25 @@ function hasAuthoritativeFlow(record: Partial<PreconsultRecordViewBackend>): boo
 }
 
 function resolveDepartmentId(visitInfo: VisitInfo): number | undefined {
-  const departmentId = Number(visitInfo.departmentId)
-  return Number.isInteger(departmentId) && departmentId > 0 ? departmentId : undefined
+  return toPreconsultDepartmentId(visitInfo.departmentId)
+}
+
+/** 接收医生归属 ID：空串/缺省返回 undefined，走旧客户端无归属兼容路径（R7），不伪造 */
+function resolveDoctorId(visitInfo: VisitInfo): string | undefined {
+  const doctorId = String(visitInfo.doctorId || '').trim()
+  return doctorId || undefined
+}
+
+/**
+ * 后端稳定错误码 DOCTOR_INVALID（HTTP 422，data.errorCode=DOCTOR_INVALID）：
+ * bootstrap/提交时医生失效（被禁用、跨科室、旧展示键等）。
+ */
+function isDoctorInvalidError(error: any): boolean {
+  const responseData = error?.response?.data
+  const code = responseData?.data?.errorCode || responseData?.code || error?.code
+  if (String(code) === 'DOCTOR_INVALID') return true
+  const message = String(responseData?.message || responseData?.msg || error?.message || '')
+  return message.includes('所选医生不可用')
 }
 
 /** 构建随 bootstrap 落库的患者快照；姓名为空视为未填写，返回 undefined 不上送 */
@@ -319,6 +338,12 @@ export const useConsultationStore = defineStore('consultation', {
   actions: {
     persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.$state))
+    },
+    /** 医生失效（DOCTOR_INVALID）时清除本地医生选择，必须重新选择后才能再次提交 */
+    clearDoctorSelection() {
+      this.visitInfo.doctor = ''
+      this.visitInfo.doctorId = ''
+      this.persist()
     },
     setConsultationMode(mode: ConsultationMode) {
       this.consultationMode = mode
@@ -442,6 +467,16 @@ export const useConsultationStore = defineStore('consultation', {
       if (typeof record.recordVersion === 'number') {
         this.recordVersion = record.recordVersion
       }
+      // 服务端回显的接收医生优先（换医生/补齐姓名快照后保持一致）；
+      // 回显为空表示记录无归属或未传，不得据此清空本地选择（R7）
+      const recordDoctorId = String(record.doctorId ?? '').trim()
+      if (recordDoctorId) {
+        this.visitInfo.doctorId = recordDoctorId
+      }
+      const recordDoctorName = String(record.doctorName ?? '').trim()
+      if (recordDoctorName) {
+        this.visitInfo.doctor = recordDoctorName
+      }
 
       const invalidatedIds = new Set(
         (record.invalidatedTemplateQuestionIds || []).map(String)
@@ -509,7 +544,9 @@ export const useConsultationStore = defineStore('consultation', {
         visitType: normalizeVisitType(getFirstValue(record, 'visitType')),
         department: String(departmentName || this.visitInfo.department || '历史问诊'),
         departmentId: String(departmentId || this.visitInfo.departmentId || ''),
+        // 服务端回显的接收医生优先；服务端未回显时保留本地选择（旧存档缺 doctorId 不伪造）
         doctor: String(getFirstValue(record, 'doctorName', 'doctor') || this.visitInfo.doctor || ''),
+        doctorId: String(getFirstValue(record, 'doctorId') || this.visitInfo.doctorId || ''),
         appointmentNo: String(getFirstValue(record, 'appointmentNo', 'registrationNo') || this.visitInfo.appointmentNo || ''),
         visitTime: String(getFirstValue(record, 'visitTime', 'createdAt', 'createTime') || this.visitInfo.visitTime || '')
       }
@@ -584,6 +621,7 @@ export const useConsultationStore = defineStore('consultation', {
       try {
         const bootstrapRes = await bootstrapPreconsult({
           departmentId: resolveDepartmentId(this.visitInfo),
+          doctorId: resolveDoctorId(this.visitInfo),
           patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
         })
         if (bootstrapRes && bootstrapRes.recordId) {
@@ -593,13 +631,20 @@ export const useConsultationStore = defineStore('consultation', {
             this.currentIndex = 0
           }
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (isDoctorInvalidError(error)) {
+          // 医生失效：清除本地医生选择并提示重新选择，不得降级为无归属/mock 问诊
+          this.clearDoctorSelection()
+          showToast('所选医生不可用，请返回就诊信息页重新选择医生')
+          return
+        }
         console.warn('后端 Bootstrap 记录失败，使用常规问题加载:', error)
       }
 
       if (!loadedFromBackend && !this.questions.length) {
         this.questions = await getConsultationQuestions(
-          resolveDepartmentId(this.visitInfo)
+          resolveDepartmentId(this.visitInfo),
+          resolveDoctorId(this.visitInfo)
         )
         this.currentIndex = 0
       }
@@ -688,10 +733,20 @@ export const useConsultationStore = defineStore('consultation', {
         await this.loadCurrentPatientAuth()
       }
       const knownQuestions = [...this.questions]
-      const refreshRes = await bootstrapPreconsult({
-        departmentId: resolveDepartmentId(this.visitInfo),
-        patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
-      })
+      let refreshRes: PreconsultRecordViewBackend
+      try {
+        refreshRes = await bootstrapPreconsult({
+          departmentId: resolveDepartmentId(this.visitInfo),
+          doctorId: resolveDoctorId(this.visitInfo),
+          patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
+        })
+      } catch (error: any) {
+        if (isDoctorInvalidError(error)) {
+          this.clearDoctorSelection()
+          showToast('所选医生不可用，请重新选择医生')
+        }
+        throw error
+      }
       if (!refreshRes || !refreshRes.recordId) return null
       this.recordId = String(refreshRes.recordId)
       if (typeof refreshRes.recordVersion === 'number') {
@@ -782,6 +837,7 @@ export const useConsultationStore = defineStore('consultation', {
             if (status === 404 || status === 409 || error?.code === 409) {
               const refreshRes = await bootstrapPreconsult({
                 departmentId: resolveDepartmentId(this.visitInfo),
+                doctorId: resolveDoctorId(this.visitInfo),
                 patientSnapshot: buildPatientSnapshot(this.profile, this.consultationMode, this.selfNarration)
               })
               if (refreshRes && typeof refreshRes.recordVersion === 'number') {
@@ -800,7 +856,12 @@ export const useConsultationStore = defineStore('consultation', {
                 synchronizedWithBackend = this.syncRecordView(retryRes)
               }
             }
-          } catch (retryErr) {
+          } catch (retryErr: any) {
+            if (isDoctorInvalidError(retryErr)) {
+              // 重试 bootstrap 校验医生失败：清除医生选择，提示重新选择（不静默降级）
+              this.clearDoctorSelection()
+              saveErrorMessage = '所选医生不可用，请重新选择医生'
+            }
             console.error('重步 recordVersion 后保存答案仍然失败:', retryErr)
           }
         }
@@ -952,6 +1013,12 @@ export const useConsultationStore = defineStore('consultation', {
             this.consultationNo = this.consultationNo || this.recordId
             this.persist()
             return true
+          }
+          if (isDoctorInvalidError(error)) {
+            // 提交时医生失效：清除本地医生选择，提示重新选择后重试，不得降级为无归属提交
+            this.clearDoctorSelection()
+            showToast('所选医生不可用，请重新选择医生后重试')
+            return false
           }
           showToast(msg || '提交失败，请稍后重试')
           return false

@@ -9,6 +9,8 @@ export interface VisitInfo {
   department: string
   departmentId: string
   doctor: string
+  /** 接收医生归属 ID（门诊助手 sys_user.id）；旧本地存档可能缺省，不得伪造 */
+  doctorId?: string
   appointmentNo: string
   visitTime: string
 }

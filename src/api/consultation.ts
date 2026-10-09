@@ -1,15 +1,37 @@
+import {
+  buildBootstrapRequestBody,
+  mapBackendDepartment,
+  mapBackendDoctor,
+  toPreconsultDepartmentId
+} from '@/api/directory'
 import { http } from '@/api/request'
 import { consultationQuestions } from '@/mock/questions'
 import type { ConsultationQuestion, ConsultationReport, QuestionType } from '@/types/consultation'
 
 export interface DoctorOption {
+  /** 展示名称 */
   label: string
+  /** 选择器展示键：真实医生为可提交的 sys_user.id；禁用条目为独立展示键（不可提交） */
   value: string
+  /** 唯一可提交的医生归属 ID（门诊助手 sys_user.id）；旧固定医生/兜底数据为 null */
+  doctorId?: string | null
+  source?: string | null
+  disabled?: boolean
+  disabledReason?: string | null
 }
 
 export interface DepartmentOption {
+  /** 展示名称 */
   label: string
+  /** 选择器展示键（displayKey），跨来源唯一；不得当作 departmentId 提交 */
   value: string
+  /** 预问诊业务 ID（Long 的字符串形式）；助手独有未映射科室为 null */
+  departmentId?: string | null
+  /** 映射到的门诊助手系统部门 ID，可为空 */
+  sysDeptId?: string | null
+  source?: string | null
+  disabled?: boolean
+  disabledReason?: string | null
   doctors: DoctorOption[]
 }
 
@@ -290,10 +312,11 @@ export function getVisibleQuestionsFromRecord(
 }
 
 export async function getConsultationQuestions(
-  departmentId?: number
+  departmentId?: number,
+  doctorId?: string | null
 ): Promise<ConsultationQuestion[]> {
   try {
-    const recordView = await bootstrapPreconsult({ departmentId })
+    const recordView = await bootstrapPreconsult({ departmentId, doctorId })
     if (recordView && Array.isArray(recordView.questions) && recordView.questions.length > 0) {
       return getVisibleQuestionsFromRecord(recordView)
     }
@@ -307,47 +330,68 @@ export async function getDepartmentList(): Promise<DepartmentOption[]> {
   try {
     const list = await http.get<Array<Record<string, any>>>('/preconsult/client/departments')
     if (Array.isArray(list) && list.length > 0) {
-      return list.map((item) => ({
-        label: item.name || item.departmentName || item.label || '未定义科室',
-        value: String(item.id || item.code || item.value || item.name),
-        doctors: []
-      }))
+      // 合并字典：保留预问诊业务 ID 与禁用信息；助手独有科室仅携带展示键与 sysDeptId
+      return list.map(mapBackendDepartment)
     }
   } catch (error) {
     console.warn('获取 /preconsult/client/departments 失败，尝试 admin 接口:', error)
     try {
       const list = await http.get<Array<Record<string, any>>>('/preconsult/admin/department/list')
       if (Array.isArray(list) && list.length > 0) {
+        // admin 兜底列表未包含映射/模板可用性信息，仅作禁用展示，不得提交
         return list.map((item) => ({
-          label: item.name || item.departmentName || item.label || '未定义科室',
-          value: String(item.id || item.code || item.value || item.name),
-          doctors: []
+          ...mapBackendDepartment(item),
+          disabled: true,
+          disabledReason: '科室数据暂不可用，请稍后重试'
         }))
       }
     } catch (e) {
       console.warn('获取后端科室列表失败，退回 Mock 数据:', e)
     }
   }
-  return Promise.resolve(mockDepartments)
+  // Mock 兜底一律禁用：字典失败不产生可提交的假科室
+  return Promise.resolve(mockDepartments.map((department) => ({
+    ...department,
+    departmentId: null,
+    sysDeptId: null,
+    source: 'mock',
+    disabled: true,
+    disabledReason: '科室数据暂不可用，请稍后重试'
+  })))
 }
 
-export async function getDoctorList(department: string): Promise<DoctorOption[]> {
+export async function getDoctorList(
+  department: string,
+  departmentId?: string | number | null
+): Promise<DoctorOption[]> {
+  const params: Record<string, unknown> = { department, deptName: department }
+  // 新契约优先传预问诊业务 ID；展示键（非正整数）不传，避免后端 Long 解析失败
+  const resolvedDepartmentId = toPreconsultDepartmentId(departmentId)
+  if (resolvedDepartmentId !== undefined) {
+    params.departmentId = resolvedDepartmentId
+  }
+
   try {
-    const list = await http.get<Array<Record<string, any>>>('/preconsult/client/doctors', {
-      params: { department, deptName: department }
-    })
+    const list = await http.get<Array<Record<string, any>>>('/preconsult/client/doctors', { params })
     if (Array.isArray(list) && list.length > 0) {
-      return list.map((item) => ({
-        label: item.doctorName || item.name || item.label || '医生',
-        value: String(item.id || item.doctorId || item.value || item.doctorName)
-      }))
+      // 旧固定医生（source=legacy）保留为禁用展示项；真实医生携带可提交的 doctorId
+      return list.map(mapBackendDoctor)
     }
   } catch (error) {
     console.warn('获取后端医生列表失败，退回 Mock 数据:', error)
   }
 
-  return Promise.resolve(
+  // Mock 兜底一律禁用：字典失败不产生可提交的假医生
+  const fallbackDoctors =
     mockDepartments.find((item) => item.label === department || item.value === department)?.doctors || []
+  return Promise.resolve(
+    fallbackDoctors.map((doctor) => ({
+      ...doctor,
+      doctorId: null,
+      source: 'legacy',
+      disabled: true,
+      disabledReason: '医生数据暂不可用，请稍后重试'
+    }))
   )
 }
 
@@ -367,17 +411,16 @@ export async function bootstrapPreconsult(payload?: {
   consentVersion?: string
   agreed?: boolean
   departmentId?: number
+  /** 接收医生 ID（门诊助手 sys_user.id）；缺省走旧客户端无归属兼容路径（R7） */
+  doctorId?: string | null
   /** 患者基本信息快照（姓名/性别/年龄/手机号等），随记录落库供医生端对齐患者 */
   patientSnapshot?: Record<string, unknown>
 }): Promise<PreconsultRecordViewBackend> {
   const reqId = payload?.requestId || generateUUID()
-  return http.post<PreconsultRecordViewBackend>('/preconsult/client/records/bootstrap', {
-    requestId: reqId,
-    consentVersion: payload?.consentVersion || '2026-07-v1',
-    agreed: payload?.agreed ?? true,
-    departmentId: payload?.departmentId,
-    patientSnapshot: payload?.patientSnapshot
-  })
+  return http.post<PreconsultRecordViewBackend>(
+    '/preconsult/client/records/bootstrap',
+    buildBootstrapRequestBody({ ...payload, requestId: reqId })
+  )
 }
 
 export async function saveAnswersApi(

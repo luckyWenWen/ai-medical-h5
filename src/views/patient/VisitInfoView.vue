@@ -8,6 +8,7 @@ import {
   type DepartmentOption,
   type DoctorOption
 } from '@/api/consultation'
+import { isSelectableDepartment, isSelectableDoctor } from '@/api/directory'
 import AppNavBar from '@/components/AppNavBar.vue'
 import { useConsultationStore } from '@/stores/consultation'
 import type { VisitInfo } from '@/types/consultation'
@@ -44,16 +45,23 @@ const filteredDepartments = computed(() => {
 })
 const departmentColumns = computed(() =>
   filteredDepartments.value.map((department) => ({
-    text: department.label,
-    value: department.value
+    text: formatOptionText(department.label, department.disabled, department.disabledReason),
+    value: department.value,
+    disabled: Boolean(department.disabled)
   }))
 )
 const doctorColumns = computed(() =>
   doctors.value.map((doctor) => ({
-    text: doctor.label,
-    value: doctor.value
+    text: formatOptionText(doctor.label, doctor.disabled, doctor.disabledReason),
+    value: doctor.value,
+    disabled: Boolean(doctor.disabled)
   }))
 )
+
+/** 禁用条目照常展示并在文案中标注原因（如“暂未配置预问诊模板”“未关联医生账号”） */
+function formatOptionText(label: string, disabled?: boolean, disabledReason?: string | null) {
+  return disabled ? `${label}（${disabledReason || '暂不可选'}）` : label
+}
 
 function padTime(value: number) {
   return String(value).padStart(2, '0')
@@ -88,7 +96,7 @@ async function loadDepartments() {
   }
 }
 
-async function loadDoctors(department: string) {
+async function loadDoctors(department: string, departmentId?: string | number | null) {
   if (!department) {
     doctors.value = []
     return
@@ -97,7 +105,7 @@ async function loadDoctors(department: string) {
   loadingDoctors.value = true
 
   try {
-    doctors.value = await getDoctorList(department)
+    doctors.value = await getDoctorList(department, departmentId ?? form.departmentId)
   } catch (error) {
     doctors.value = []
     showToast(error instanceof Error ? error.message : '医生列表加载失败')
@@ -107,17 +115,35 @@ async function loadDoctors(department: string) {
 }
 
 function chooseDepartment({ selectedOptions }: { selectedOptions: PickerOption[] }) {
-  if (!selectedOptions[0]) {
+  const picked = selectedOptions[0]
+  if (!picked) {
     showToast('未找到匹配科室')
     return
   }
 
-  form.department = selectedOptions[0]?.text ? String(selectedOptions[0].text) : ''
-  form.departmentId = selectedOptions[0]?.value ? String(selectedOptions[0].value) : ''
+  // 以展示键反查完整字典条目；提交使用的业务 ID 只能来自条目的 departmentId
+  const selected = departments.value.find((department) => department.value === String(picked.value ?? ''))
+  if (!selected) {
+    showToast('未找到匹配科室')
+    return
+  }
+  if (!isSelectableDepartment(selected)) {
+    showToast(selected.disabledReason || '该科室暂不可选')
+    return
+  }
+
+  const hadDoctor = Boolean(form.doctor || form.doctorId)
+  form.department = selected.label
+  form.departmentId = String(selected.departmentId || '')
+  // 换科室后旧医生不跨科室沿用，必须按新科室重新选择
   form.doctor = ''
+  form.doctorId = ''
   showDepartmentPicker.value = false
   departmentKeyword.value = ''
-  loadDoctors(form.department)
+  if (hadDoctor) {
+    showToast('科室已变更，请重新选择医生')
+  }
+  loadDoctors(form.department, form.departmentId)
 }
 
 function openDoctorPicker() {
@@ -130,7 +156,20 @@ function openDoctorPicker() {
 }
 
 function chooseDoctor({ selectedOptions }: { selectedOptions: PickerOption[] }) {
-  form.doctor = selectedOptions[0]?.text ? String(selectedOptions[0].text) : ''
+  const picked = selectedOptions[0]
+  const selected = doctors.value.find((doctor) => doctor.value === String(picked?.value ?? ''))
+  if (!selected) {
+    showToast('未找到匹配医生')
+    return
+  }
+  // 旧固定医生/禁用条目仅展示：不可选，也不得把展示键回填为 doctorId
+  if (!isSelectableDoctor(selected)) {
+    showToast(selected.disabledReason || '该医生暂不可选，请重新选择')
+    return
+  }
+
+  form.doctor = selected.label
+  form.doctorId = String(selected.doctorId || '')
   showDoctorPicker.value = false
 }
 
@@ -142,8 +181,30 @@ async function next() {
     return
   }
 
+  // 提交前再校验：业务 ID 必须是预问诊科室 ID，展示键不得当作 departmentId 提交
+  if (!isSelectableDepartment({ disabled: false, departmentId: form.departmentId })) {
+    showToast('请选择有效科室')
+    return
+  }
+  const selectedDepartment = departments.value.find((department) => department.departmentId === form.departmentId)
+  if (departments.value.length > 0 && (!selectedDepartment || !isSelectableDepartment(selectedDepartment))) {
+    showToast(selectedDepartment?.disabledReason || '当前科室暂不可选，请重新选择')
+    return
+  }
+
   if (!form.doctor) {
     showToast('请选择医生')
+    return
+  }
+
+  // 提交前再校验：仅真实有效医生可提交；旧存档缺少 doctorId 时必须重新选择
+  if (!form.doctorId) {
+    showToast('请选择有效医生')
+    return
+  }
+  const selectedDoctor = doctors.value.find((doctor) => doctor.doctorId === form.doctorId)
+  if (doctors.value.length > 0 && (!selectedDoctor || !isSelectableDoctor(selectedDoctor))) {
+    showToast('所选医生暂不可用，请重新选择')
     return
   }
 
@@ -165,7 +226,7 @@ async function next() {
 
 onMounted(() => {
   loadDepartments()
-  loadDoctors(form.department)
+  loadDoctors(form.department, form.departmentId)
 })
 </script>
 
