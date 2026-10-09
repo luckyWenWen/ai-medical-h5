@@ -14,7 +14,6 @@ const selectedCodes = ref<string[]>([])
 const submitting = ref(false)
 
 const question = computed(() => store.currentQuestion)
-console.log("8888",store.currentQuestion)
 const options = computed(() => question.value?.options || [])
 const maxSelections = computed(() => question.value?.maxSelections || 5)
 
